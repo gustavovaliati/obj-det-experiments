@@ -10,7 +10,8 @@ import datetime
 
 class JriekeBboxDataset:
     def __init__(self, num_imgs = 50000, min_object_size = 1, max_object_size = 4,
-        num_objects = 1, img_width = 8, img_height = 8, train_proportion = 0.8):
+        num_objects = 1, img_width = 8, img_height = 8, train_proportion = 0.8
+        shapes_number=1):
 
         self.num_imgs = num_imgs
         self.min_object_size = min_object_size
@@ -19,20 +20,36 @@ class JriekeBboxDataset:
         self.WIDTH = img_width
         self.HEIGHT = img_height
         self.train_proportion = train_proportion
+        self.shapes_number = shapes_number
+        self.shapes = ['rectangle','triangle']
 
     def generate(self):
         print('Generating...')
 
         self.bboxes = np.zeros((self.num_imgs, self.num_objects, 4))
         self.imgs = np.zeros((self.num_imgs, self.WIDTH, self.HEIGHT))  # set background to 0
+        self.shapes = np.zeros((self.num_imgs, self.num_objects), dtype=int)
 
         for i_img in range(self.num_imgs):
             for i_object in range(self.num_objects):
-                w, h = np.random.randint(self.min_object_size, self.max_object_size, size=2)
-                x = np.random.randint(0, self.WIDTH - w)
-                y = np.random.randint(0, self.HEIGHT - h)
-                self.imgs[i_img, y:y+h, x:x+w] = 1.  # set rectangle to 1
-                self.bboxes[i_img, i_object] = [x, y, w, h]
+                shape = np.random.randint(self.shapes_number)
+                if shape == 0:
+                    w, h = np.random.randint(self.min_object_size, self.max_object_size, size=2)
+                    x = np.random.randint(0, self.WIDTH - w)
+                    y = np.random.randint(0, self.HEIGHT - h)
+                    self.imgs[i_img, y:y+h, x:x+w] = 1.  # set rectangle to 1
+                    self.bboxes[i_img, i_object] = [x, y, w, h]
+                    shapes[i_img, i_object] = [0]
+                elif shape == 1:
+                    size = np.random.randint(self.min_object_size, self.max_object_size)
+                    x = np.random.randint(0, self.WIDTH - w)
+                    y = np.random.randint(0, self.HEIGHT - h)
+                    mask = np.tril_indices(size)
+                    imgs[i_img, x + mask[0], y + mask[1]] = 1.
+                    bboxes[i_img, i_object] = [x, y, size, size]
+                    shapes[i_img, i_object] = [1]
+                else:
+                    raise Exception("Unsupported requested shape quantity.")
 
         print("Shapes: imgs ", self.imgs.shape, " bboxes ", self.bboxes.shape)
 
@@ -40,7 +57,17 @@ class JriekeBboxDataset:
         # X = (self.imgs.reshape(self.num_imgs, -1) - np.mean(self.imgs)) / np.std(self.imgs)
         X = self.imgs
 
-        y = self.bboxes.reshape(self.num_imgs, -1) / self.WIDTH
+
+        shapes_onehot = np.zeros((self.num_imgs, self.num_objects, self.shapes_number))
+        for i_img in range(self.num_imgs):
+            for i_object in range(self.num_objects):
+                shapes_onehot[i_img, i_object, self.shapes[i_img, i_object]] = 1
+
+        # y = self.bboxes.reshape(self.num_imgs, -1) / self.WIDTH
+        y = np.concatenate(
+                [   self.bboxes / self.WIDTH, 
+                    shapes_onehot], axis=-1).reshape(self.num_imgs, -1)
+            y.shape, np.all(np.argmax(colors_onehot, axis=-1) == colors)
 
         # Split training and test.
         i = int(self.train_proportion * self.num_imgs)
@@ -51,7 +78,10 @@ class JriekeBboxDataset:
         self.test_imgs = self.imgs[i:]
         self.test_bboxes = self.bboxes[i:]
 
-        return train_X, train_y, test_X, test_y
+        if self.shapes_number == 1:
+            return train_X, train_y, test_X, test_y
+        else
+            return train_X, train_y, test_X, test_y,
 
     def check_dataset_image_compability(self, test_X_sample, test_imgs_sample):
         fig = plt.figure(figsize=(12, 3))

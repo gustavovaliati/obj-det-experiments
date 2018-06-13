@@ -94,8 +94,8 @@ model.compile('adadelta', 'mse')
 
 
 # Train.
-print('test_X',test_X[0])
-print('train_y',train_y[0])
+print('test_X',test_X.shape)
+print('train_y',train_y.shape)
 model.fit(train_X, train_y, nb_epoch=1, validation_data=(test_X, test_y), verbose=2)
 
 from keras.utils import plot_model

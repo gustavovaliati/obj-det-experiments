@@ -51,40 +51,49 @@ def conv_net_01(x, n_outputs, dropout, reuse, is_training):
         out = tf.layers.dense(fc1, n_outputs)
     return out
 
-def cnn_model_fn(features, labels, mode):
 
-    logits_train = conv_net_01(x=features, n_outputs=4, dropout=0.25, reuse=False, is_training=True)
-    logits_test = conv_net_01(x=features, n_outputs=4, dropout=0.25, reuse=True, is_training=False)
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        return tf.estimator.EstimatorSpec(mode, predictions=logits_test)
-
-    # loss_op = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
-    #             logits=logits_train, labels=tf.cast(labels, dtype=tf.int32) ))
-    loss_op = tf.losses.mean_squared_error(labels=labels, predictions=logits_train)
-
-    optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
-    train_op = optimizer.minimize(loss_op, global_step=tf.train.get_global_step())
-
-    acc_op = tf.metrics.accuracy(labels=labels, predictions=logits_test)
-
-    estimator_specs = tf.estimator.EstimatorSpec(
-        mode=mode,
-        predictions=logits_test,
-        loss=loss_op,
-        train_op=train_op,
-        eval_metric_ops={'accuracy':acc_op}
-    )
-
-    return estimator_specs
 
 
 def main(unused_argv):
+
+    def cnn_model_fn(features, labels, mode):
+        output_number = args.obj_number * 4
+        print(output_number)
+        logits_train = conv_net_01(x=features, n_outputs=output_number, dropout=0.25, reuse=False, is_training=True)
+        logits_test = conv_net_01(x=features, n_outputs=output_number, dropout=0.25, reuse=True, is_training=False)
+
+        if mode == tf.estimator.ModeKeys.PREDICT:
+            return tf.estimator.EstimatorSpec(mode, predictions=logits_test)
+
+        # loss_op = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
+        #             logits=logits_train, labels=tf.cast(labels, dtype=tf.int32) ))
+        loss_op = tf.losses.mean_squared_error(labels=labels, predictions=logits_train)
+
+        optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+        train_op = optimizer.minimize(loss_op, global_step=tf.train.get_global_step())
+
+        acc_op = tf.metrics.accuracy(labels=labels, predictions=logits_test)
+
+        estimator_specs = tf.estimator.EstimatorSpec(
+            mode=mode,
+            predictions=logits_test,
+            loss=loss_op,
+            train_op=train_op,
+            eval_metric_ops={'accuracy':acc_op}
+        )
+
+        return estimator_specs
+
     ap = argparse.ArgumentParser()
     ap.add_argument("-c", "--checkpoint",
                     required = False,
                     default = False,
                     help = "Load tensorflow checkpoint.")
+    ap.add_argument("-n", "--obj_number",
+        required=False,
+        default=2,
+        type=int,
+        help = "Defines how many objects are going to be inserted in each image.")
     args = ap.parse_args()
 
     CHECKPOINT_PATH = None
@@ -93,7 +102,7 @@ def main(unused_argv):
 
     print("TensorFlow version: {}".format(tf.__version__))
 
-    dataset = JriekeBboxDataset()
+    dataset = JriekeBboxDataset(num_objects=args.obj_number)
     train_data, train_bboxes, test_data, test_bboxes = dataset.generate()
 
     # Show the shapes
@@ -106,7 +115,7 @@ def main(unused_argv):
 
 
     # Show a random sample from the dataset.
-    # dataset.show_generated()
+    dataset.show_generated()
 
     # Show random samples from the returned sets.
 
@@ -181,11 +190,11 @@ def main(unused_argv):
     '''
     pred_bboxes = np.array(list(predict_results))
     print('pred_bboxes original shape',pred_bboxes.shape)
-    pred_bboxes = pred_bboxes.reshape(-1,1,4) # number of images, number of bboxes per image, number of coords
+    pred_bboxes = pred_bboxes.reshape(-1,args.obj_number,4) # number of images, number of bboxes per image, number of coords
     print('pred_bboxes new shape',pred_bboxes.shape)
     print('pred_bboxes output sample', pred_bboxes[0])
 
-    # dataset.show_predicted(pred_bboxes)
+    dataset.show_predicted(pred_bboxes)
 
     '''
     Keras:
@@ -199,11 +208,11 @@ def main(unused_argv):
     mean_IOU = summed_IOU / len(pred_bboxes)
     print('mean_IOU:',mean_IOU)
 
-    pred_labels = np.full((pred_bboxes.shape[0],1),0)
-    pred_scores = np.full((pred_bboxes.shape[0],1),0)
-    gt_bboxes = test_bboxes.reshape(-1,1,4)
+    pred_labels = np.full((pred_bboxes.shape[0],args.obj_number),0)
+    pred_scores = np.full((pred_bboxes.shape[0],args.obj_number),0)
+    gt_bboxes = test_bboxes.reshape(-1,args.obj_number,4)
     gt_labels = pred_labels
-    # print(pred_bboxes.shape,pred_labels.shape,pred_scores.shape,gt_bboxes.shape,gt_labels.shape)
+    print(pred_bboxes.shape,pred_labels.shape,pred_scores.shape,gt_bboxes.shape,gt_labels.shape)
     data = (pred_bboxes,pred_labels,pred_scores,gt_bboxes,gt_labels)
     metrics = Metrics(data)
     metrics.calc()

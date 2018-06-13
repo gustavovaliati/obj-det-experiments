@@ -150,8 +150,8 @@ def main(unused_argv):
     '''
 
     summed_IOU = 0.
-    for pred_bbox, test_bbox in zip(predict_results, eval_labels):
-        summed_IOU += IOU(pred_bbox, test_bbox)
+    for pred_bbox, test_bbox in zip(pred_bboxes, eval_labels):
+        summed_IOU += dataset.IOU(pred_bbox[0], test_bbox)
     mean_IOU = summed_IOU / len(pred_bboxes)
     print('mean_IOU:',mean_IOU)
 
