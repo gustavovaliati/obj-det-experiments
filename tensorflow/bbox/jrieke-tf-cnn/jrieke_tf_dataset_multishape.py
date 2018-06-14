@@ -10,18 +10,22 @@ import datetime
 
 class JriekeBboxDataset:
     def __init__(self, num_imgs = 50000, min_object_size = 1, max_object_size = 4,
-        num_objects = 1, img_width = 8, img_height = 8, train_proportion = 0.8
-        shapes_number=1):
+        num_objects = 1, img_size = 8, train_proportion = 0.8,
+        shape_number=2):
 
         self.num_imgs = num_imgs
         self.min_object_size = min_object_size
         self.max_object_size = max_object_size
         self.num_objects = num_objects
-        self.WIDTH = img_width
-        self.HEIGHT = img_height
+        self.WIDTH = img_size #For now this should work only for square.
+        self.HEIGHT = img_size
         self.train_proportion = train_proportion
-        self.shapes_number = shapes_number
-        self.shapes = ['rectangle','triangle']
+
+        if shape_number > 2:
+            raise Exception("We actually support only a maximum of 3 shapes.")
+        self.shape_number = shape_number
+        self.shape_labels = ['rectangle','triangle','circle']
+        self.shape_labels_colors = ['g','y','c']
 
     def generate(self):
         print('Generating...')
@@ -29,25 +33,25 @@ class JriekeBboxDataset:
         self.bboxes = np.zeros((self.num_imgs, self.num_objects, 4))
         self.imgs = np.zeros((self.num_imgs, self.WIDTH, self.HEIGHT))  # set background to 0
         self.shapes = np.zeros((self.num_imgs, self.num_objects), dtype=int)
+        print('self.shapes.shape = ',self.shapes.shape)
 
         for i_img in range(self.num_imgs):
             for i_object in range(self.num_objects):
-                shape = np.random.randint(self.shapes_number)
+                shape = np.random.randint(self.shape_number)
+                self.shapes[i_img, i_object] = shape
                 if shape == 0:
                     w, h = np.random.randint(self.min_object_size, self.max_object_size, size=2)
                     x = np.random.randint(0, self.WIDTH - w)
                     y = np.random.randint(0, self.HEIGHT - h)
                     self.imgs[i_img, y:y+h, x:x+w] = 1.  # set rectangle to 1
                     self.bboxes[i_img, i_object] = [x, y, w, h]
-                    shapes[i_img, i_object] = [0]
                 elif shape == 1:
                     size = np.random.randint(self.min_object_size, self.max_object_size)
-                    x = np.random.randint(0, self.WIDTH - w)
-                    y = np.random.randint(0, self.HEIGHT - h)
+                    x = np.random.randint(0, self.WIDTH - size)
+                    y = np.random.randint(0, self.HEIGHT - size)
                     mask = np.tril_indices(size)
-                    imgs[i_img, x + mask[0], y + mask[1]] = 1.
-                    bboxes[i_img, i_object] = [x, y, size, size]
-                    shapes[i_img, i_object] = [1]
+                    self.imgs[i_img, y + mask[0], x + mask[1]] = 1.
+                    self.bboxes[i_img, i_object] = [x, y, size, size]
                 else:
                     raise Exception("Unsupported requested shape quantity.")
 
@@ -58,17 +62,14 @@ class JriekeBboxDataset:
         X = self.imgs
 
 
-        shapes_onehot = np.zeros((self.num_imgs, self.num_objects, self.shapes_number))
+        shapes_onehot = np.zeros((self.num_imgs, self.num_objects, self.shape_number))
         for i_img in range(self.num_imgs):
             for i_object in range(self.num_objects):
                 shapes_onehot[i_img, i_object, self.shapes[i_img, i_object]] = 1
 
         # y = self.bboxes.reshape(self.num_imgs, -1) / self.WIDTH
-        y = np.concatenate(
-                [   self.bboxes / self.WIDTH, 
-                    shapes_onehot], axis=-1).reshape(self.num_imgs, -1)
-            y.shape, np.all(np.argmax(colors_onehot, axis=-1) == colors)
-
+        y = np.concatenate( [self.bboxes / self.WIDTH, shapes_onehot], axis=-1).reshape(self.num_imgs, -1)
+        print('y shape', y.shape)
         # Split training and test.
         i = int(self.train_proportion * self.num_imgs)
         train_X = X[:i] #80% for training
@@ -78,10 +79,7 @@ class JriekeBboxDataset:
         self.test_imgs = self.imgs[i:]
         self.test_bboxes = self.bboxes[i:]
 
-        if self.shapes_number == 1:
-            return train_X, train_y, test_X, test_y
-        else
-            return train_X, train_y, test_X, test_y,
+        return train_X, train_y, test_X, test_y
 
     def check_dataset_image_compability(self, test_X_sample, test_imgs_sample):
         fig = plt.figure(figsize=(12, 3))
@@ -175,7 +173,7 @@ class JriekeBboxDataset:
         plt.show()
         print('compare:',test_X_sample,test_imgs_sample)
 
-    def show_predicted(self, pred_bboxes):
+    def show_predicted(self, pred_bboxes, pred_shapes_onehot):
         # Show a few images and predicted bounding boxes from the test dataset.
 
         fig = plt.figure(figsize=(12, 3))
@@ -187,7 +185,7 @@ class JriekeBboxDataset:
             plt.subplot(1, 5, i_subplot)
             i = np.random.randint(len(pred_bboxes))
             plt.imshow(self.test_imgs[i], cmap='Greys', interpolation='none', origin='lower', extent=[0, self.WIDTH, 0, self.HEIGHT])
-            for pred_bbox, exp_bbox in zip(pred_bboxes[i], self.test_bboxes[i]):
+            for pred_bbox, exp_bbox, pred_shape_idx in zip(pred_bboxes[i], self.test_bboxes[i], pred_shapes_onehot[i]):
                 # print('before convertion: pred',pred_bbox, 'gt',exp_bbox)
                 pred_bbox = self.convertDefaultAnnotToCoord(pred_bbox)
                 # exp_bbox = self.convertDefaultAnnotToCoord(exp_bbox)
@@ -195,7 +193,11 @@ class JriekeBboxDataset:
                 plt.gca().add_patch(matplotlib.patches.Rectangle((pred_bbox[0], pred_bbox[1]), pred_bbox[2], pred_bbox[3], ec='r', fc='none'))
                 #gt
                 plt.gca().add_patch(matplotlib.patches.Rectangle((exp_bbox[0], exp_bbox[1]), exp_bbox[2], exp_bbox[3], ec='b', fc='none'))
-                plt.annotate('IOU: {:.2f}'.format(self.IOU(pred_bbox, exp_bbox)), (pred_bbox[0], pred_bbox[1]+pred_bbox[3]+0.2), color='r')
+
+                plt.annotate(
+                    'IOU:{:.2f},{}'.format(self.IOU(pred_bbox, exp_bbox),self.shape_labels[pred_shape_idx]),
+                    (pred_bbox[0], pred_bbox[1]+pred_bbox[3]+0.2),
+                    color=self.shape_labels_colors[pred_shape_idx])
                 if not legend_plotted:
                     legend_plotted = True
                     plt.gca().legend(['Pred','GT'],loc='upper center', bbox_to_anchor=(0.5, -0.5), fancybox=True)
