@@ -18,6 +18,7 @@ class HelloWorldDataset:
         self.num_objects = num_objects
         self.WIDTH = img_size #For now this should work only for square.
         self.HEIGHT = img_size
+        self.img_size = img_size
         self.train_proportion = train_proportion
 
         if shape_number > 2:
@@ -29,28 +30,28 @@ class HelloWorldDataset:
     def generate(self):
         print('Generating...')
 
-        self.bboxes = np.zeros((self.num_imgs, self.num_objects, 4))
+        self.bboxes = np.zeros((self.num_imgs, self.num_objects, 5)) #one for the class
         self.imgs = np.zeros((self.num_imgs, self.WIDTH, self.HEIGHT))  # set background to 0
-        self.shapes = np.zeros((self.num_imgs, self.num_objects), dtype=int)
-        print('self.shapes.shape = ',self.shapes.shape)
+        # self.shapes = np.zeros((self.num_imgs, self.num_objects), dtype=int)
 
         for i_img in range(self.num_imgs):
             for i_object in range(self.num_objects):
                 shape = np.random.randint(self.shape_number)
-                self.shapes[i_img, i_object] = shape
                 if shape == 0:
                     w, h = np.random.randint(self.min_object_size, self.max_object_size, size=2)
                     x = np.random.randint(0, self.WIDTH - w)
                     y = np.random.randint(0, self.HEIGHT - h)
                     self.imgs[i_img, y:y+h, x:x+w] = 1.  # set rectangle to 1
-                    self.bboxes[i_img, i_object] = [x, y, w, h]
+                    coords = np.array([x, y, w, h]) / self.img_size
+                    self.bboxes[i_img, i_object] = np.concatenate((coords,[shape]))
                 elif shape == 1:
                     size = np.random.randint(self.min_object_size, self.max_object_size)
                     x = np.random.randint(0, self.WIDTH - size)
                     y = np.random.randint(0, self.HEIGHT - size)
                     mask = np.tril_indices(size)
                     self.imgs[i_img, y + mask[0], x + mask[1]] = 1.
-                    self.bboxes[i_img, i_object] = [x, y, size, size]
+                    coords = np.array([x, y, size, size]) / self.img_size
+                    self.bboxes[i_img, i_object] = np.concatenate((coords,[shape]))
                 else:
                     raise Exception("Unsupported requested shape quantity.")
 
@@ -59,15 +60,10 @@ class HelloWorldDataset:
         #why this?
         # X = (self.imgs.reshape(self.num_imgs, -1) - np.mean(self.imgs)) / np.std(self.imgs)
         X = self.imgs
-
-
-        shapes_onehot = np.zeros((self.num_imgs, self.num_objects, self.shape_number))
-        for i_img in range(self.num_imgs):
-            for i_object in range(self.num_objects):
-                shapes_onehot[i_img, i_object, self.shapes[i_img, i_object]] = 1
-
+        y = self.bboxes
         # y = self.bboxes.reshape(self.num_imgs, -1) / self.WIDTH
-        y = np.concatenate( [self.bboxes / self.WIDTH, shapes_onehot], axis=-1).reshape(self.num_imgs, -1)
+        # y = np.concatenate( [self.bboxes / self.WIDTH, self.shapes], axis=-1).reshape(self.num_imgs, -1)
+        print('y[0]',y[0])
         print('y shape', y.shape)
         # Split training and test.
         i = int(self.train_proportion * self.num_imgs)
@@ -80,19 +76,33 @@ class HelloWorldDataset:
 
         return train_X, train_y, test_X, test_y
 
+    def bbox_iou_centered(self,boxA,boxB):
+        A_x1, A_y1, A_w, A_h = boxA[0], boxA[1], boxA[2], boxA[3]
+        A_x1 = A_x1 - int(A_w/2)
+        A_y1 = A_y1 - int(A_h/2)
+
+        B_x1, B_y1, B_w, B_h = boxB[0], boxB[1], boxB[2], boxB[3]
+        B_x1 = B_x1 - int(B_w/2)
+        B_y1 = B_y1 - int(B_h/2)
+
+        # print(A_x1,A_y1)
+
+        return self.bbox_iou([A_x1, A_y1, A_w, A_h],[B_x1, B_y1, B_w, B_h])
+
     def bbox_iou(self,boxA, boxB):
         #From: https://www.pyimagesearch.com/2016/11/07/intersection-over-union-iou-for-object-detection/
-
-        raise Exception('TODO, check if we are dealing with x and y being center of bbox or top-left')
+        # print('box',boxA,boxB)
         # A) x1,y2,w,h
         A_x1, A_y1, A_w, A_h = boxA[0], boxA[1], boxA[2], boxA[3]
         # A) x2,y2
-        A_x2, A_y2 = A_x1 + A_w, A_y1 + A_h
+        A_x2, A_y2 = A_x1 + A_w - 1, A_y1 + A_h - 1
 
         # B) x1,y2,w,h
         B_x1, B_y1, B_w, B_h = boxB[0], boxB[1], boxB[2], boxB[3]
         # B) x2,y2
-        B_x2, B_y2 = B_x1 + B_w, B_y1 + B_h
+        B_x2, B_y2 = B_x1 + B_w - 1, B_y1 + B_h - 1
+
+        # print(A_x1,A_y1,A_x2,A_y2)
 
         xA = max(A_x1, B_x1)
         yA = max(A_y1, B_y1)
@@ -113,7 +123,7 @@ class HelloWorldDataset:
         iou = interArea / float(boxAArea + boxBArea - interArea)
 
         # return the intersection over union value
-        return iou
+        return iou if iou >= .0 else .0
 
     def convertDefaultAnnotToCoord(self, annot):
         '''
