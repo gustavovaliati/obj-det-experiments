@@ -26,17 +26,11 @@ class Conv_net_01:
         return out
 
 class Conv_net_02:
-    def get_config(self,img_size):
-        n_grid = self.calc_grid(img_size)
-        anchors = [[3,3],[5,5],[7,7]]
-        return {
-            'n_grid' : n_grid, #in how many slices the image is going to be divided
-            'n_classes': 2,
-            'anchors' : anchors, #the default anchors per cell.
-            'img_size' : img_size,
-            'n_bboxes': n_grid*n_grid * len(anchors) #total number of bboxes/anchors in each image
-        }
-    def calc_grid(self,img_size=None):
+    def __init__(self, img_size=None, img_channels=3):
+
+        self.img_size = img_size
+        self.img_channels = img_channels
+        
         '''
         n_grid refers to the number of slices the image is going to be divided,
         generating a number of cells.
@@ -44,30 +38,53 @@ class Conv_net_02:
 
         The n_grid is calculated according to the model architecture.
         Look to the layers outputs to understand the calculation.
-        '''
 
-        # If image is 16x16, then: 16 -> 14 -> 12 -> 6 -> 4
-        n_grid = int(((img_size - 2 - 2) /2) -2)
-        if n_grid < 4:
+        If image is 16x16, then: 16 -> 14 -> 12 -> 5. Final layer output is [5]x5xn_outputs_per_cell
+        '''
+        self.n_grid = 5
+        if self.n_grid < 4:
             raise Exception(' The calculated n_grid value should be at least 4. Seems like the given img_size is too small, try minimum of 16x16')
 
-        return n_grid
+        self.anchors = [[3,3],[5,5],[7,7]]
+        self.n_anchors_per_cell = len(self.anchors)
+        self.n_classes = 2
+        self.n_bboxes =  self.n_grid*self.n_grid * self.n_anchors_per_cell
+        self.n_cells = self.n_grid * self.n_grid
 
-    def get_model(self,x, reuse, is_training,n_outputs):
-        with tf.variable_scope('ConvNet', reuse=reuse):
-            x = tf.reshape(x, shape=[-1, args.img_size, args.img_size, 1]) # img channels == 1
-            #lets say the image side size is 16
-            # Expected input 16x16x1
-            conv1 = tf.layers.conv2d(x, filters=32, kernel_size=3, strides=1, activation=tf.nn.relu)
-            #input 14x14x32
-            conv2 = tf.layers.conv2d(conv1, filters=64, kernel_size=3, strides=1, activation=tf.nn.relu)
-            #input 12x12x64
-            conv3 = tf.layers.conv2d(conv3, filters=128, kernel_size=3, strides=2, activation=tf.nn.relu)
-            #input 6x6x128
-            conv4 = tf.layers.conv2d(conv3, filters=n_outputs, kernel_size=1, strides=1, activation=tf.nn.relu)
+        # if we have only 1 class, we do not need to use the c in the output vector.
+        classes = self.n_classes if self.n_classes > 1 else 0
+        self.n_outputs_per_anchor = 5 + classes
+        self.n_outputs_per_cell = self.n_anchors_per_cell * self.n_outputs_per_anchor
+        self.n_outputs = self.n_bboxes * self.n_outputs_per_anchor
 
-            #expected output 4x4xn_outputs. We want n_outputs outputs per cell.
-            out = tf.contrib.layers.flatten(conv4)
+    def get_config(self):
+        return {
+            'n_grid' : self.n_grid, #in how many slices the image is going to be divided
+            'n_classes': self.n_classes,
+            'anchors' : self.anchors, #the default anchors per cell.
+            'img_size' : self.img_size,
+            'n_outputs' : self.n_outputs,
+            'n_cells' : self.n_cells,
+            'n_outputs_per_cell': self.n_outputs_per_cell,
+            'n_anchors_per_cell' : self.n_anchors_per_cell,
+            'n_bboxes': self.n_bboxes #total number of bboxes/anchors in each image
+        }
+
+    def get_model(self, x, reuse, is_training):
+        # with tf.variable_scope('ConvNet', reuse=reuse):
+        x = tf.reshape(x, shape=[-1, self.img_size, self.img_size, self.img_channels])
+        #lets say the image side size is 16 and we have 3 channels
+        # Expected input 16x16x3
+        conv1 = tf.layers.conv2d(x, filters=32, kernel_size=3, strides=1, activation=tf.nn.relu)
+        #input 14x14x32
+        conv2 = tf.layers.conv2d(conv1, filters=64, kernel_size=3, strides=1, activation=tf.nn.relu)
+        #input 12x12x64
+        conv3 = tf.layers.conv2d(conv2, filters=128, kernel_size=3, strides=2, activation=tf.nn.relu)
+        #input 5x5x128
+        conv4 = tf.layers.conv2d(conv3, filters=self.n_outputs_per_cell, kernel_size=1, strides=1, activation=tf.nn.relu)
+
+        #expected output 5x5xn_outputs. We want n_outputs outputs per cell.
+        out = tf.contrib.layers.flatten(conv4)
 
         return out
 
@@ -115,6 +132,7 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
         - If n_classes == 1, we will remove the (n_classes * c) since it is unnecessary.
         - anchors == None, means to use them all.
         - (n_grid * n_grid) = number of cells per image, depends on the image dimension and net structure.
+        - lets call (P x y w h (n_classes * c) ) as 'prediction_unit'
 
     Output per image
     n_cell *
@@ -239,13 +257,8 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
     if verbose:
         print('model config: ',config)
 
-    # if we have only 1 class, we do not need to use the c in the output vector.
-    classes = config['n_classes'] if config['n_classes'] > 1 else 0
-    n_outputs_per_anchor = 5 + classes
-    n_outputs_per_cell = len(config['anchors']) * n_outputs_per_anchor
-
     #we already have computed the number o bboxes per image (n_cells * n_anchors_per_cell)
-    outputs = np.zeros((len(gt), config['n_bboxes'] * n_outputs_per_anchor))
+    outputs = np.zeros((len(gt), config['n_outputs']))
 
     if verbose:
         print('network output size is gonna be: ', outputs.shape)
@@ -323,3 +336,99 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
             #     print('>',value)
 
     return outputs
+
+def find_cell_topleft(cell_index,config):
+    '''
+    How many complete rows we have?
+        R: Just the first row is complete, and there are more cells in the next row.
+        So we have found the row.
+
+    Lets say we want the anchor_index==4 for a n_grid==3
+    [ [1,2,3],[4,(5),6],[7,8,9] ]
+
+    Using divmod(anchor_index+1, n_grid). See some examples:
+    >>> divmod(5,3)
+    (1, 2) -> our anchor is in the row of index 1 (second row) in the second position (index 1).
+    >>> divmod(1,3)
+    (0, 1) -> our anchor is in the row of index 0 (first row) in the first position (index 0).
+    >>> divmod(9,3)
+    (3, 0) ->   Our anchor is in the row of index 3, which gives a n_grid==4.
+                Our n_grid is just 3. That means our cell is the last one.
+    >>> divmod(8,3)
+    (2, 2) -> our anchor is in the row of index 2 (last row) in the second position (index 1).
+
+    '''
+    (row_index,rest) = divmod((cell_index + 1), config['n_grid'])
+    column_index = rest - 1
+    if row_index >= config['n_grid']:
+        row_index = config['n_grid'] - 1
+        column_index = row_index
+
+    '''
+    Lets img_size==16.
+    cell_slice_size ==  int(5.333) == 16 / 3 == img_size/n_grid
+    The 0.333 remaining we always leave for the last columns/rows
+    '''
+    cell_slice_size = int(config['img_size'] / config['n_grid'])
+
+    topleft_x = column_index * cell_slice_size
+    topleft_y = row_index * cell_slice_size
+
+    # returns normalized
+    return topleft_x / config['img_size'], topleft_y / config['img_size']
+
+def calc_scaled_from_offsets(offseted_bboxes, config, anchor_index, cell_index):
+
+    x_offset, y_offset, w_offset, h_offset = offseted_bboxes[0],offseted_bboxes[1],offseted_bboxes[2],offseted_bboxes[3]
+
+    model_anchor = config['anchors'][anchor_index]
+    anchor_w, anchor_h = model_anchor[0], model_anchor[1]
+    w = math.pow(anchor_w,w_offset)
+    h = math.pow(anchor_h,h_offset)
+
+    cell_side = int(config['img_size'] / config['n_grid'])
+    #x as pixels relative to the top left corner of the cell
+    x_cell_pixels = x_offset * cell_side
+    # now find the scale of these pixels to the entire image
+    x_image_pixels_scaled = x_cell_pixels * config['img_size']
+
+    topleft_x, topleft_y = find_cell_topleft(cell_index,config)
+    x = topleft_x + x_offset
+    y = topleft_y + y_offset
+
+    return x,y,w,h
+
+def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
+    '''
+    prediction_unit : (P x y w h (n_classes * c) ) -> dimensions contains only offsets
+    wanted output is like the gt: x,y,w,h,class -> dimensions are normalized to the image dimensions
+    '''
+    n_pred = len(pred)
+    n_outputs_pred = len(pred)
+    if verbose:
+        print('Translating predicitions: ', n_pred)
+        print('The predictions have outputs of size:', n_outputs_pred)
+
+    pred = np.array(pred)
+
+    translated_output = []
+
+    for img_output in pred:
+        translated_img_output = [] #put inside this all relevant predicted bboxes
+        cells = np.split(img_output,config['n_cells'])
+        for cell_index, cell in enumerate(cells):
+            anchors = np.split(cell,config['n_anchors_per_cell'])
+            for anchor_index, prediction_unit in enumerate(anchors):
+                P, x_offset, y_offset, w_offset, h_offset = prediction_unit[0],prediction_unit[1],prediction_unit[2],prediction_unit[3],prediction_unit[4]
+                pred_class = 0
+                if len(prediction_unit) > 5:
+                    pred_class = np.argmax(prediction_unit[5:-1])
+
+                x,y,w,h = calc_scaled_from_offsets([x_offset, y_offset, w_offset, h_offset],config,anchor_index,cell_index)
+
+
+                if P >= obj_threshold:
+                    print('P',P)
+                    translated_img_output.append([x,y,w,h,pred_class])
+        translated_output.append(translated_img_output)
+    return translated_output

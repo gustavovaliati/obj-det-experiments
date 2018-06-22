@@ -28,15 +28,21 @@ assert iou == 0.0
 
 
 #MODEL
-from model import translate_to_model_gt, Conv_net_02
-curr_model = Conv_net_02()
+from model import translate_from_model_pred, translate_to_model_gt, Conv_net_02
+curr_model = Conv_net_02(img_size=16)
 
 #TEST ON DUMMY
-# new_dummy_gt = translate_to_model_gt(dummy_gt,curr_model.get_config(dataset.img_size), dataset.bbox_iou_centered)
+new_dummy_gt = translate_to_model_gt(dummy_gt,curr_model.get_config(), dataset.bbox_iou_centered)
 
-#TEST ON DATASET
-train_data, train_labels, eval_data, eval_labels = dataset.generate()
-print(train_labels[0])
+#lets say our new_dummy_gt is also our prediction, just to check our function.
+translated_pred = translate_from_model_pred(new_dummy_gt , curr_model.get_config(),verbose=True)
+print(translated_pred)
+dataset.show_predicted(translated_pred, dummy_gt)
 
-new_train_labels = translate_to_model_gt(train_labels,curr_model.get_config(dataset.img_size), dataset.bbox_iou_centered, normalized=True)
-new_eval_labels = translate_to_model_gt(eval_labels,curr_model.get_config(dataset.img_size), dataset.bbox_iou_centered, normalized=True)
+##TEST ON DATASET
+# train_data, train_labels, eval_data, eval_labels = dataset.generate()
+# print(train_labels[0])
+#
+# curr_model = Conv_net_02(img_size=dataset.img_size)
+# new_train_labels = translate_to_model_gt(train_labels,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True)
+# new_eval_labels = translate_to_model_gt(eval_labels,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True)

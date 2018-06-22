@@ -5,9 +5,7 @@ import numpy as np
 import argparse
 
 from dataset import HelloWorldDataset
-from model import translate_to_model_gt, Conv_net_01, Conv_net_02, Conv_net_03
-
-cur_model = Conv_net_02()
+from model import translate_from_model_pred, translate_to_model_gt, Conv_net_01, Conv_net_02, Conv_net_03
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -29,19 +27,22 @@ ap.add_argument("-s", "--shape_number",
     help = "Defines how many object shapes are going to be used.")
 ap.add_argument("-i", "--img_size",
     required=False,
-    default=8,
+    default=16,
     type=int,
     help = "Defines the value for image's width and height. It is going to be a square.")
 ARGS = ap.parse_args()
 
+curr_model = Conv_net_02(img_size=ARGS.img_size)
+
+
 def cnn_model_fn(features, labels, mode):
 
-    logits_train = cur_model.get_model(x=features, reuse=False, is_training=True)
-    logits_test = cur_model.get_model(x=features, reuse=True, is_training=False)
+    logits_train = curr_model.get_model(x=features, reuse=False, is_training=True)
+    logits_test = curr_model.get_model(x=features, reuse=True, is_training=False)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         return tf.estimator.EstimatorSpec(mode, predictions=logits_test)
-
+    print('labels.shape,logits_train.shape',labels.shape,logits_train.shape)
     loss_op = tf.losses.mean_squared_error(labels=labels, predictions=logits_train)
 
     optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
@@ -61,12 +62,15 @@ def cnn_model_fn(features, labels, mode):
 
 def run_model():
     dataset = HelloWorldDataset(
+        # num_imgs=100,
         num_objects=ARGS.obj_number,
         shape_number=ARGS.shape_number,
         img_size=ARGS.img_size,
-        train_proportion=0.8)
+        train_proportion=0.8,
+        num_imgs=50)
 
     train_data, train_y, test_data, test_y = dataset.generate()
+
     # Show the shapes
     print(
         'Shapes: ',
@@ -75,8 +79,10 @@ def run_model():
         'test_data', test_data.shape,
         'test_y', test_y.shape)
 
-    train_y = translate_to_model_gt(train_y, cur_model.get_config(img_size=ARGS.img_size))
-    test_y = translate_to_model_gt(test_y, cur_model.get_config(img_size=ARGS.img_size))
+    print('Translating gt...')
+    new_train_y = translate_to_model_gt(train_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True)
+    new_test_y = translate_to_model_gt(test_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True)
+    print('Done.')
 
     # Show a random sample from the dataset.
     dataset.show_generated()
@@ -90,7 +96,7 @@ def run_model():
 
         train_input_fn = tf.estimator.inputs.numpy_input_fn(
             x=train_data,
-            y=train_y,
+            y=new_train_y,
             batch_size=64,
             num_epochs=1,
             shuffle=True)
@@ -104,7 +110,7 @@ def run_model():
     # Evaluate
     eval_input_fn = tf.estimator.inputs.numpy_input_fn(
         x=test_data,
-        y=test_y,
+        y=new_test_y,
         # num_epochs=10,
         shuffle=False)
 
@@ -119,6 +125,12 @@ def run_model():
     results = np.array(list(predict_results))
     print('results shape',results.shape)
 
+    pred = translate_from_model_pred(results, curr_model.get_config(),verbose=True,obj_threshold=0.01)
+
+    mean_iou, iou_per_image = dataset.grv_mean_iou(pred,gt=test_y)
+    print('mean_iou',mean_iou)
+
+    dataset.show_predicted(predictions=pred,gt=test_y)
 
 def main(unused_argv):
     run_model()
