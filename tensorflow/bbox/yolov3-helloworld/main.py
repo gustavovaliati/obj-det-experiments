@@ -30,9 +30,17 @@ ap.add_argument("-i", "--img_size",
     default=16,
     type=int,
     help = "Defines the value for image's width and height. It is going to be a square.")
+ap.add_argument("-di", "--num_imgs",
+    required=False,
+    default=100,
+    type=int,
+    help = "Defines the number of images generated for the dataset.")
 ARGS = ap.parse_args()
 
-curr_model = Conv_net_02(img_size=ARGS.img_size)
+if ARGS.num_imgs < 30:
+    raise Exception('The minimum num_imgs is 30.')
+
+curr_model = Conv_net_02(img_size=ARGS.img_size, n_classes=2)
 
 
 def cnn_model_fn(features, labels, mode):
@@ -67,7 +75,7 @@ def run_model():
         shape_number=ARGS.shape_number,
         img_size=ARGS.img_size,
         train_proportion=0.8,
-        num_imgs=50)
+        num_imgs=ARGS.num_imgs)
 
     train_data, train_y, test_data, test_y = dataset.generate()
 
@@ -81,7 +89,7 @@ def run_model():
 
     print('Translating gt...')
     new_train_y = translate_to_model_gt(train_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True)
-    new_test_y = translate_to_model_gt(test_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True)
+    new_test_y = translate_to_model_gt(test_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True, verbose=True)
     print('Done.')
 
     # Show a random sample from the dataset.
@@ -125,7 +133,10 @@ def run_model():
     results = np.array(list(predict_results))
     print('results shape',results.shape)
 
-    pred = translate_from_model_pred(results, curr_model.get_config(),verbose=True,obj_threshold=0.01)
+    pred = translate_from_model_pred(new_test_y, curr_model.get_config(),verbose=True,obj_threshold=0.01)
+    # pred = translate_from_model_pred(results, curr_model.get_config(),verbose=True,obj_threshold=0.01)
+    for p in pred:
+        print('p',p)
 
     mean_iou, iou_per_image = dataset.grv_mean_iou(pred,gt=test_y)
     print('mean_iou',mean_iou)

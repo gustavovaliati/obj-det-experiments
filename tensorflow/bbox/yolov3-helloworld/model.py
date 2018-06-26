@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import math
+from scipy.special import expit
 
 #the anchors need to be odd.
 # anchors = [10,13,  16,30,  33,23,  30,61,  62,45,  59,119,  116,90,  156,198,  373,326]
@@ -26,11 +27,11 @@ class Conv_net_01:
         return out
 
 class Conv_net_02:
-    def __init__(self, img_size=None, img_channels=3):
+    def __init__(self, img_size=None, img_channels=1, n_classes = None):
 
         self.img_size = img_size
         self.img_channels = img_channels
-        
+
         '''
         n_grid refers to the number of slices the image is going to be divided,
         generating a number of cells.
@@ -42,12 +43,16 @@ class Conv_net_02:
         If image is 16x16, then: 16 -> 14 -> 12 -> 5. Final layer output is [5]x5xn_outputs_per_cell
         '''
         self.n_grid = 5
-        if self.n_grid < 4:
-            raise Exception(' The calculated n_grid value should be at least 4. Seems like the given img_size is too small, try minimum of 16x16')
+        if self.n_grid < 4 and self.n_grid < self.img_size:
+            raise Exception(' The calculated n_grid value should be at least 4. Seems like the given img_size is too small, try minimum of 16x16. It also cannot be >= to img_size.')
 
         self.anchors = [[3,3],[5,5],[7,7]]
         self.n_anchors_per_cell = len(self.anchors)
-        self.n_classes = 2
+
+        if not n_classes:
+            raise Exception('Missing number of classes')
+        self.n_classes = n_classes
+
         self.n_bboxes =  self.n_grid*self.n_grid * self.n_anchors_per_cell
         self.n_cells = self.n_grid * self.n_grid
 
@@ -60,6 +65,7 @@ class Conv_net_02:
     def get_config(self):
         return {
             'n_grid' : self.n_grid, #in how many slices the image is going to be divided
+            'cell_side' : int(self.img_size / self.n_grid), #WARNING: this may not be true for the last grid column/line due its possible bigger size.
             'n_classes': self.n_classes,
             'anchors' : self.anchors, #the default anchors per cell.
             'img_size' : self.img_size,
@@ -238,7 +244,7 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
             iou_scores.append(iou)
             if verbose:
                 print('for anchor',anchor,'iou',iou)
-
+        # print(iou_scores)
         best_anchor_index = np.argmax(iou_scores)
 
 
@@ -254,8 +260,11 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
         replacing_positions = np.arange(anchor_initial_pos, anchor_initial_pos + n_each_anchor_output)
 
         return replacing_positions
+
     if verbose:
         print('model config: ',config)
+
+    gt = np.copy(gt)
 
     #we already have computed the number o bboxes per image (n_cells * n_anchors_per_cell)
     outputs = np.zeros((len(gt), config['n_outputs']))
@@ -272,14 +281,14 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
 
             obj_gt_normalized_backup = []
             if normalized:
-                #Reverse from normalized.
+                #Denormalize
                 obj_gt_normalized_backup.extend(obj_gt)
                 obj_gt[0] = obj_gt[0] * config['img_size']
                 obj_gt[1] = obj_gt[1] * config['img_size']
                 obj_gt[2] = obj_gt[2] * config['img_size']
                 obj_gt[3] = obj_gt[3] * config['img_size']
                 if verbose:
-                    print('normalized to:', obj_gt)
+                    print('denormalized to:', obj_gt)
 
 
             cell_index, best_anchor_index, best_anchor = get_best_anchor_for_gt(obj_gt,  config['n_grid'], config['img_size'])
@@ -289,23 +298,34 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
             cell_center_x, cell_center_y, anchor_w, anchor_h = best_anchor[0],best_anchor[1],best_anchor[2],best_anchor[3]
 
             #Calculate the offsets.
+
             #The x,y are relative to the cell.
-            top_left_cell_x = cell_center_x - int(config['n_grid']/2)
-            top_left_cell_y = cell_center_y - int(config['n_grid']/2)
+            top_left_cell_x, top_left_cell_y = find_cell_topleft(cell_index,config) # returns scaled
             if verbose:
                 print('top_left',top_left_cell_x,top_left_cell_y)
 
+            #This is denormalized
             gt_x, gt_y, gt_w, gt_h, gt_class = obj_gt[0],obj_gt[1],obj_gt[2],obj_gt[3],int(obj_gt[4])
 
-            offset_x = gt_x - top_left_cell_x
-            offset_x = offset_x / config['n_grid'] #normalize in the grid scale
-            offset_y = gt_y - top_left_cell_y
-            offset_y = offset_y / config['n_grid'] #normalize in the grid scale
-            if verbose:
-                print('offset_x,offset_y',offset_x,offset_y)
+            #Find the offset from the topleft of the cell
+            offset_x = gt_x - top_left_cell_x # This is denormalized
+            offset_x_cell_norm = offset_x / config['cell_side'] #normalize in the cell scale
 
-            expoent_w = math.log(gt_w,anchor_w) # gt_w == anchor_w ^ expoent_w
-            expoent_h = math.log(gt_h,anchor_h) # gt_h == anchor_h ^ expoent_h
+            offset_y = gt_y - top_left_cell_y
+            offset_y_cell_norm = offset_y / config['cell_side'] #normalize in the grid scale
+            if verbose:
+                print('offset_x,offset_y',offset_x_cell_norm,offset_y_cell_norm)
+
+            #Normalize
+            gt_w_norm = gt_w / config['img_size']
+            gt_h_norm = gt_h / config['img_size']
+            anchor_w_norm = anchor_w / config['img_size']
+            anchor_h_norm = anchor_h / config['img_size']
+
+            #expoent_w and expoent_h are what the network is going to output in a prediciton
+            #So we they gt here.
+            expoent_w = math.log(gt_w_norm,anchor_w_norm) # gt_w == anchor_w ^ expoent_w
+            expoent_h = math.log(gt_h_norm,anchor_h_norm) # gt_h == anchor_h ^ expoent_h
             if verbose:
                 print('expoent_w,expoent_h',expoent_w,expoent_h)
 
@@ -315,14 +335,7 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
             c[gt_class] = 1 #activate the gt class
 
             #gt_output : object_probability, x,y,w,h offsets, class1_probability, ..., classN_probability
-            if normalized:
-                #Normalized the output
-                offset_x = offset_x / config['img_size']
-                offset_y = offset_y / config['img_size']
-                expoent_w = expoent_w / config['img_size']
-                expoent_h = expoent_h / config['img_size']
-
-            gt_output = np.concatenate(([p,offset_x,offset_y,expoent_w,expoent_h],c))
+            gt_output = np.concatenate(([p,offset_x_cell_norm,offset_y_cell_norm,expoent_w,expoent_h],c))
             if verbose:
                 print('gt_output',gt_output)
 
@@ -343,19 +356,19 @@ def find_cell_topleft(cell_index,config):
         R: Just the first row is complete, and there are more cells in the next row.
         So we have found the row.
 
-    Lets say we want the anchor_index==4 for a n_grid==3
+    Lets say we want the cell_index==4 for a n_grid==3
     [ [1,2,3],[4,(5),6],[7,8,9] ]
 
-    Using divmod(anchor_index+1, n_grid). See some examples:
+    Using divmod(cell_index+1, n_grid). See some examples:
     >>> divmod(5,3)
-    (1, 2) -> our anchor is in the row of index 1 (second row) in the second position (index 1).
+    (1, 2) -> our cell is in the row of index 1 (second row) in the second position (index 1).
     >>> divmod(1,3)
-    (0, 1) -> our anchor is in the row of index 0 (first row) in the first position (index 0).
+    (0, 1) -> our cell is in the row of index 0 (first row) in the first position (index 0).
     >>> divmod(9,3)
-    (3, 0) ->   Our anchor is in the row of index 3, which gives a n_grid==4.
+    (3, 0) ->   Our cell is in the row of index 3, which gives a n_grid==4.
                 Our n_grid is just 3. That means our cell is the last one.
     >>> divmod(8,3)
-    (2, 2) -> our anchor is in the row of index 2 (last row) in the second position (index 1).
+    (2, 2) -> our cell is in the row of index 2 (last row) in the second position (index 1).
 
     '''
     (row_index,rest) = divmod((cell_index + 1), config['n_grid'])
@@ -365,7 +378,7 @@ def find_cell_topleft(cell_index,config):
         column_index = row_index
 
     '''
-    Lets img_size==16.
+    Lets say img_size==16.
     cell_slice_size ==  int(5.333) == 16 / 3 == img_size/n_grid
     The 0.333 remaining we always leave for the last columns/rows
     '''
@@ -373,30 +386,53 @@ def find_cell_topleft(cell_index,config):
 
     topleft_x = column_index * cell_slice_size
     topleft_y = row_index * cell_slice_size
+    print('find_cell_topleft: topleft_x,topleft_y',topleft_x,topleft_y)
 
     # returns normalized
     return topleft_x / config['img_size'], topleft_y / config['img_size']
 
 def calc_scaled_from_offsets(offseted_bboxes, config, anchor_index, cell_index):
+    print('offseted_bboxes',offseted_bboxes)
+    x_offset, y_offset, w_offset_expoent, h_offset_expoent = offseted_bboxes[0],offseted_bboxes[1],offseted_bboxes[2],offseted_bboxes[3]
 
-    x_offset, y_offset, w_offset, h_offset = offseted_bboxes[0],offseted_bboxes[1],offseted_bboxes[2],offseted_bboxes[3]
+    #force the predicted x and y to be between 0 and 1 with a sigmoid func.
+    print('WARNING: should use the sigmoid func?')
+    x_offset = expit(x_offset)
+    y_offset = expit(y_offset)
 
     model_anchor = config['anchors'][anchor_index]
     anchor_w, anchor_h = model_anchor[0], model_anchor[1]
-    w = math.pow(anchor_w,w_offset)
-    h = math.pow(anchor_h,h_offset)
+    anchor_w_norm = anchor_w / config['img_size']
+    anchor_h_norm = anchor_h / config['img_size']
+    w = math.pow(anchor_w_norm,w_offset_expoent) #gt_w == anchor_w ^ expoent_w
+    h = math.pow(anchor_h_norm,h_offset_expoent)
 
-    cell_side = int(config['img_size'] / config['n_grid'])
     #x as pixels relative to the top left corner of the cell
-    x_cell_pixels = x_offset * cell_side
+    x_cell_scaled = (x_offset * config['cell_side']) / config['img_size']
+
+    #x as pixels relative to the top left corner of the cell
+    y_cell_scaled = (y_offset * config['cell_side']) / config['img_size']
+
+    topleft_x_scaled, topleft_y_scaled = find_cell_topleft(cell_index,config) #returns scaled
+    x = topleft_x_scaled + x_cell_scaled
+    y = topleft_y_scaled + y_cell_scaled
+
+    '''
+    #x as pixels relative to the top left corner of the cell
+    x_cell_pixels = x_offset * config['cell_side']
     # now find the scale of these pixels to the entire image
     x_image_pixels_scaled = x_cell_pixels * config['img_size']
 
-    topleft_x, topleft_y = find_cell_topleft(cell_index,config)
-    x = topleft_x + x_offset
-    y = topleft_y + y_offset
+    #x as pixels relative to the top left corner of the cell
+    y_cell_pixels = y_offset * config['cell_side']
+    # now find the scale of these pixels to the entire image
+    y_image_pixels_scaled = y_cell_pixels * config['img_size']
 
-    return x,y,w,h
+    topleft_x, topleft_y = find_cell_topleft(cell_index,config) #returns scaled
+    x = topleft_x + x_image_pixels_scaled
+    y = topleft_y + y_image_pixels_scaled
+    '''
+    return x,y,w,h #scaled
 
 def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
     '''
@@ -416,19 +452,23 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
     for img_output in pred:
         translated_img_output = [] #put inside this all relevant predicted bboxes
         cells = np.split(img_output,config['n_cells'])
+        # print('cells',len(cells))
         for cell_index, cell in enumerate(cells):
             anchors = np.split(cell,config['n_anchors_per_cell'])
+            # print('anchors',len(anchors))
             for anchor_index, prediction_unit in enumerate(anchors):
+                # print('prediction_unit',prediction_unit)
                 P, x_offset, y_offset, w_offset, h_offset = prediction_unit[0],prediction_unit[1],prediction_unit[2],prediction_unit[3],prediction_unit[4]
                 pred_class = 0
                 if len(prediction_unit) > 5:
                     pred_class = np.argmax(prediction_unit[5:-1])
-
                 x,y,w,h = calc_scaled_from_offsets([x_offset, y_offset, w_offset, h_offset],config,anchor_index,cell_index)
 
 
                 if P >= obj_threshold:
-                    print('P',P)
+                    print('P,prediction_unit,traslation',P,prediction_unit,[x,y,w,h,pred_class])
                     translated_img_output.append([x,y,w,h,pred_class])
+                    print('translated_img_output',len(translated_img_output))
         translated_output.append(translated_img_output)
+    print('len pred',len(pred))
     return translated_output
