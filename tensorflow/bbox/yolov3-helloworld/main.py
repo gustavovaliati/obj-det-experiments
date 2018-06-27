@@ -2,10 +2,10 @@ import tensorflow as tf
 print("TensorFlow version: {}".format(tf.__version__))
 
 import numpy as np
-import argparse
+import argparse, os
 
 from dataset import HelloWorldDataset
-from model import translate_from_model_pred, translate_to_model_gt, Conv_net_01, Conv_net_02, Conv_net_03
+from model import *
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -15,6 +15,11 @@ ap.add_argument("-c", "--checkpoint",
     default = None,
     type=str,
     help = "Load tensorflow checkpoint.")
+ap.add_argument("-sc", "--save_checkpoint",
+    required = False,
+    default = None,
+    type=str,
+    help = "Dir to save tensorflow checkpoint.")
 ap.add_argument("-n", "--obj_number",
     required=False,
     default=2,
@@ -35,13 +40,27 @@ ap.add_argument("-di", "--num_imgs",
     default=100,
     type=int,
     help = "Defines the number of images generated for the dataset.")
+ap.add_argument("-m", "--model_id",
+    required=False,
+    default=1,
+    type=int,
+    help = "Defines which model is going to be used.")
 ARGS = ap.parse_args()
 
 if ARGS.num_imgs < 30:
     raise Exception('The minimum num_imgs is 30.')
 
-curr_model = Conv_net_02(img_size=ARGS.img_size, n_classes=2)
+curr_model = None
+if ARGS.model_id == 1:
+    curr_model = Conv_net_01(img_size=ARGS.img_size, n_classes=ARGS.obj_number)
+elif ARGS.model_id == 2:
+    curr_model = Conv_net_02(img_size=ARGS.img_size, n_classes=ARGS.obj_number)
+elif ARGS.model_id == 3:
+    curr_model = Conv_net_03(img_size=ARGS.img_size, n_classes=ARGS.obj_number)
+else:
+    raise Exception('The given model id does not exist.')
 
+print('Using model',curr_model.get_name())
 
 def cnn_model_fn(features, labels, mode):
 
@@ -89,15 +108,15 @@ def run_model():
 
     print('Translating gt...')
     new_train_y = translate_to_model_gt(train_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True)
-    new_test_y = translate_to_model_gt(test_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True, verbose=True)
+    new_test_y = translate_to_model_gt(test_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True, verbose=False)
     print('Done.')
 
     # Show a random sample from the dataset.
-    dataset.show_generated()
+    # dataset.show_generated()
 
     # Create the Estimator
     estimator = tf.estimator.Estimator(
-        model_fn=cnn_model_fn, model_dir="./convnet_model")
+        model_fn=cnn_model_fn, model_dir=os.path.dirname(ARGS.save_checkpoint))
 
     if not ARGS.checkpoint:
         print("Training...")
@@ -133,13 +152,18 @@ def run_model():
     results = np.array(list(predict_results))
     print('results shape',results.shape)
 
-    # pred = translate_from_model_pred(new_test_y, curr_model.get_config(),verbose=False,obj_threshold=0.01)
-    pred = translate_from_model_pred(results, curr_model.get_config(),verbose=False,obj_threshold=0.01)
-    for p in pred:
-        print('p',p)
+    pred = translate_from_model_pred(results, curr_model.get_config(),verbose=False,obj_threshold=0.1)
+    # pred = translate_from_model_pred(new_test_y, curr_model.get_config(),verbose=False,obj_threshold=0.1)
 
-    # mean_iou, iou_per_image = dataset.grv_mean_iou(pred,gt=test_y)
-    # print('mean_iou',mean_iou)
+    print('Camera ready predictions...')
+    for img_index, img_p in enumerate(pred):
+        for obj_index, obj_p in enumerate(img_p):
+            for obj_gt in test_y[img_index]:
+                iou = dataset.bbox_iou_centered(obj_gt,obj_p)
+                print("For img {} - gt {} <-> pred {} has iou of {}".format(img_index,obj_gt,obj_p,iou))
+
+    mean_iou, iou_per_image = dataset.grv_mean_iou(pred,gt=test_y)
+    print('mean_iou',mean_iou)
 
     dataset.show_predicted(predictions=pred,gt=test_y)
 

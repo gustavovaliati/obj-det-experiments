@@ -5,6 +5,7 @@ IMG_SIZE = 16
 CLASSES_NUMBER = 3
 
 curr_model = Conv_net_02(img_size=IMG_SIZE, n_classes=CLASSES_NUMBER)
+# curr_model = Conv_net_01(img_size=IMG_SIZE, n_classes=CLASSES_NUMBER)
 
 dataset = HelloWorldDataset(
     num_objects=2,
@@ -32,7 +33,6 @@ In this case our predictions would be perfect.
 If our translation process is correct, we should plot perfect predictions.
 '''
 pred = translate_from_model_pred(new_test_y, curr_model.get_config(),verbose=False,obj_threshold=0.01)
-
 
 print('Camera ready predictions...')
 for img_index, img_p in enumerate(pred):

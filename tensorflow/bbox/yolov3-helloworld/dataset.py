@@ -9,6 +9,7 @@ import datetime
 import random
 # import cairo,math
 from skimage.draw import circle, polygon
+from tqdm import tqdm
 
 
 class HelloWorldDataset:
@@ -37,10 +38,11 @@ class HelloWorldDataset:
         self.shape_labels_colors = ['g','y','c']
 
     def generate(self):
+        print('Generating the dataset...')
         self.y = np.zeros((self.num_imgs, self.num_objects, 5)) #one for the class
         self.imgs = np.zeros((self.num_imgs, self.WIDTH, self.HEIGHT),dtype=np.double)
 
-        for i_img in range(self.num_imgs):
+        for i_img in tqdm(range(self.num_imgs)):
 
             has_overlap = True
             #Through brute force we are going to generate only objects with low overlap.
@@ -427,7 +429,7 @@ class HelloWorldDataset:
         plt.gca().add_patch(matplotlib.patches.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], ec='r', fc='none'))
         plt.show()
 
-    def show_predicted(self, predictions, gt):
+    def show_predicted(self, predictions, gt, show_gt=False):
         fig = plt.figure(figsize=(12, 3))
         fig.subplots_adjust(top=0.85)
         fig.suptitle('Prediction demonstration. Random samples.')
@@ -436,16 +438,16 @@ class HelloWorldDataset:
             plt.subplot(1, 5, i_subplot)
             plt.imshow(self.test_imgs[i_subplot-1], cmap='Greys', interpolation='none', origin='lower', extent=[0, self.img_size, 0, self.img_size])
 
-            for pred_data, gt_data in zip(predictions[i_subplot-1],gt[i_subplot-1]):
+            if show_gt:
+                for gt_data in gt[i_subplot-1]:
+                    gt_bbox = self.from_yolo_to_default([gt_data[0], gt_data[1], gt_data[2], gt_data[3]])
+                    plt.gca().add_patch(matplotlib.patches.Rectangle((gt_bbox[0], gt_bbox[1]), gt_bbox[2], gt_bbox[3], ec='b', fc='none', lw=1.0, ls='solid'))
+
+            for pred_data in predictions[i_subplot-1]:
                 x,y,w,h,pred_class = pred_data[0], pred_data[1], pred_data[2], pred_data[3], pred_data[4]
-                # print('before convertion: pred',pred_bbox, 'gt',exp_bbox)
-                gt_bbox = self.from_yolo_to_default([gt_data[0], gt_data[1], gt_data[2], gt_data[3]])
                 pred_bbox = self.from_yolo_to_default([x,y,w,h])
 
-                #GT
-                plt.gca().add_patch(matplotlib.patches.Rectangle((gt_bbox[0], gt_bbox[1]), gt_bbox[2], gt_bbox[3], ec='b', fc='none', lw=1.0, ls='solid'))
-                #PRED
-                plt.gca().add_patch(matplotlib.patches.Rectangle((pred_bbox[0], pred_bbox[1]), pred_bbox[2], pred_bbox[3], ec='r', fc='none',lw=2.0,ls='dotted'))
+                plt.gca().add_patch(matplotlib.patches.Rectangle((pred_bbox[0], pred_bbox[1]), pred_bbox[2], pred_bbox[3], ec='r', fc='none',lw=1.0,ls='solid'))
 
                 plt.annotate('{}'.format(self.shape_labels[pred_class]), (pred_bbox[0], pred_bbox[1]+pred_bbox[3]+0.2),
                     color=self.shape_labels_colors[pred_class])
@@ -457,10 +459,65 @@ class HelloWorldDataset:
     def grv_mean_iou(self,pred,gt):
         print('Calculating IOU.')
         print('#This function needs to be improved. There may be a way to achieve a better iou when relating gt x pred bboxes.')
+        pred = np.copy(pred)
+        gt = np.copy(gt)
+
+        UNAVAILABLE_FLAG = 1
+        pred_discard_control = []
+        for p_bboxes in pred:
+            '''
+            build a list of zeros according to the number of pred bboxes.
+            zeros means all pred bboxes are available
+            putting a UNAVAILABLE_FLAG in a determinated position means that bbox is unavailable.
+            '''
+            pred_discard_control.append(np.zeros((len(p_bboxes))))
+
+        iou_scores = [] #average iou per image
+
+        # get the gts for every image
+        for img_index, img_gt_bboxes in enumerate(gt):
+            img_iou_scores = []
+
+            #get the gts for a specific image
+            for gt_bbox in img_gt_bboxes:
+                #holds iou scores for all predictions for this image in relation to this gt.
+                gt_bbox_iou_scores = []
+
+                #get the predicitions for the same image
+                for pred_index, pred_bbox in enumerate(pred[img_index]):
+                    #check availability
+                    if pred_discard_control[img_index][pred_index] == UNAVAILABLE_FLAG:
+                        continue
+
+                    #calculate the iou of all predictions for this gt.
+                    iou = self.bbox_iou_centered(pred_bbox, gt_bbox)
+                    # print('comparing pred, gt, iou',pred_bbox,gt_bbox,iou)
+                    gt_bbox_iou_scores.append(iou)
+
+                # if there are usable predicitions.
+                if len(gt_bbox_iou_scores) > 0:
+                    # here we find the best predicition for this gt.
+                    # print('gt_bbox_iou_scores',gt_bbox_iou_scores)
+                    best_pred = np.argmax(gt_bbox_iou_scores)
+                    # print('for gt_bbox the best_iou',gt_bbox, gt_bbox_iou_scores[best_pred])
+                    img_iou_scores.append(gt_bbox_iou_scores[best_pred]) #save the best iou for the gt
+
+                    #Mark as unavailable, so that it cannot be reused for other gts
+                    pred_discard_control[img_index][best_pred] = UNAVAILABLE_FLAG
+
+            #now we average the iou scores for this image and save it.
+            iou_scores.append(np.average(img_iou_scores))
+
+        return np.average(iou_scores),iou_scores
+
+    def grv_mean_iou_old(self,pred,gt):
+        print('Calculating IOU.')
+        print('#This function needs to be improved. There may be a way to achieve a better iou when relating gt x pred bboxes.')
         _pred = np.copy(pred)
         gt = np.copy(gt)
 
         #add an extra column as flag. If the value is different than zero the bbox should not be considered anymore
+        print('_pred.shape',_pred.shape)
         control_column_idx = _pred.shape[2]
         DISCARDED_FLAG = 1
         pred = np.zeros((_pred.shape[0],_pred.shape[1],control_column_idx+1))
