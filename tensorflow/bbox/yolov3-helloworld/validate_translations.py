@@ -24,7 +24,7 @@ for t_y_index, t_y in enumerate(test_y):
     for t_obj_index, t_obj in enumerate(t_y):
         print("IMG {} OBJ {} ".format(t_y_index,t_obj_index), t_obj)
 
-new_test_y = translate_to_model_gt(test_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True, verbose=True)
+new_test_y = translate_to_model_gt(test_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True, verbose=False)
 
 '''
 Simulate our raw predicitions (from the network) are the new_test_y.
@@ -37,9 +37,9 @@ pred = translate_from_model_pred(new_test_y, curr_model.get_config(),verbose=Fal
 print('Camera ready predictions...')
 for img_index, img_p in enumerate(pred):
     for obj_index, obj_p in enumerate(img_p):
-        print('IMG {} OBJ {}    '.format(img_index,obj_index), obj_p)
-        print('SHOULD BE (GT):', test_y[img_index,obj_index])
-
+        for obj_gt in test_y[img_index]:
+            iou = dataset.bbox_iou_centered(obj_gt,obj_p)
+            print("For img {} - gt {} <-> pred {} has iou of {}".format(img_index,obj_gt,obj_p,iou))
 
 mean_iou, iou_per_image = dataset.grv_mean_iou(pred,gt=test_y)
 print('mean_iou',mean_iou)

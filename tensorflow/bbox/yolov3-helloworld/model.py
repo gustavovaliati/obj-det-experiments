@@ -469,7 +469,8 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
                     if len(prediction_unit) > 5:
                         pred_class = np.argmax(prediction_unit[5:])
                         x,y,w,h = calc_scaled_from_offsets([x_offset, y_offset, w_offset, h_offset],config,anchor_index,cell_index)
-                    print('P,prediction_unit,traslation',P,prediction_unit,[x,y,w,h,pred_class])
+                        if verbose:
+                            print('P,prediction_unit,traslation',P,prediction_unit,[x,y,w,h,pred_class])
                     translated_img_output.append([x,y,w,h,pred_class])
         translated_output.append(translated_img_output)
     return translated_output

@@ -397,8 +397,7 @@ class HelloWorldDataset:
             i_img = i_subplot-1
             plt.subplot(1, 5, i_subplot)
             # plt.imshow(self.imgs[i_img],cmap=plt.cm.gray)
-            plt.imshow(self.imgs[i_img],cmap='Greys')
-
+            plt.imshow(self.imgs[i_img],cmap='Greys', interpolation='none', origin='lower', extent=[0, self.img_size, 0, self.img_size])
 
             for i_obj, obj_y in enumerate(self.y[i_img]):
                 x,y,w,h,gt_class = obj_y[0], obj_y[1], obj_y[2], obj_y[3], int(obj_y[4])
@@ -441,63 +440,22 @@ class HelloWorldDataset:
                 x,y,w,h,pred_class = pred_data[0], pred_data[1], pred_data[2], pred_data[3], pred_data[4]
                 # print('before convertion: pred',pred_bbox, 'gt',exp_bbox)
                 gt_bbox = self.from_yolo_to_default([gt_data[0], gt_data[1], gt_data[2], gt_data[3]])
-                print('gt_bbox',gt_bbox)
-                print('pred before',x,y,w,h,pred_class)
                 pred_bbox = self.from_yolo_to_default([x,y,w,h])
-                print('pred_bbox',pred_bbox)
-                plt.gca().add_patch(matplotlib.patches.Rectangle((pred_bbox[0], pred_bbox[1]), pred_bbox[2], pred_bbox[3], ec='r', fc='none'))
-                #gt
-                # plt.gca().add_patch(matplotlib.patches.Rectangle((gt_bbox[0], gt_bbox[1]), gt_bbox[2], gt_bbox[3], ec='b', fc='none'))
 
-                plt.annotate(
-                    'IOU:{:.2f},{}'.format(self.bbox_iou(pred_bbox, gt_bbox),self.shape_labels[pred_class]),
-                    (pred_bbox[0], pred_bbox[1]+pred_bbox[3]+0.2),
+                #GT
+                plt.gca().add_patch(matplotlib.patches.Rectangle((gt_bbox[0], gt_bbox[1]), gt_bbox[2], gt_bbox[3], ec='b', fc='none', lw=1.0, ls='solid'))
+                #PRED
+                plt.gca().add_patch(matplotlib.patches.Rectangle((pred_bbox[0], pred_bbox[1]), pred_bbox[2], pred_bbox[3], ec='r', fc='none',lw=2.0,ls='dotted'))
+
+                plt.annotate('{}'.format(self.shape_labels[pred_class]), (pred_bbox[0], pred_bbox[1]+pred_bbox[3]+0.2),
                     color=self.shape_labels_colors[pred_class])
                 if not legend_plotted:
                     legend_plotted = True
                     plt.gca().legend(['Pred','GT'],loc='upper center', bbox_to_anchor=(0.5, -0.5), fancybox=True)
         plt.show()
-
-    def show_predicted_old(self, predictions, gt, rand=True, max_plot=5):
-        # Show a few images and predicted bounding boxes from the test dataset.
-
-        fig = plt.figure(figsize=(12, 3))
-        fig.subplots_adjust(top=0.85)
-        fig.suptitle('Prediction demonstration. Random samples.')
-        legend_plotted = False
-        pred_size = len(predictions)
-        if max_plot > pred_size:
-            max_plot = pred_size
-        our_range = random.randint(1,max_plot)
-
-        for i_subplot in range(1, our_range+1):
-            plt.subplot(1, our_range, i_subplot)
-            i = np.random.randint(max_plot)
-            plt.imshow(self.test_imgs[i], cmap='Greys', interpolation='none', origin='lower', extent=[0, self.img_size, 0, self.img_size])
-            for pred, exp_bbox in zip(predictions[i], self.test_bboxes[i]):
-                x,y,w,h,pred_class = pred[0], pred[1], pred[2], pred[3], pred[4]
-                # print('before convertion: pred',pred_bbox, 'gt',exp_bbox)
-                print('exp_bbox',exp_bbox)
-                print('pred before',x,y,w,h,pred_class)
-                pred_bbox = self.convertDefaultAnnotToCoord([x,y,w,h])
-                print('pred_bbox',pred_bbox)
-                # exp_bbox = self.convertDefaultAnnotToCoord(exp_bbox)
-                # print('after convertion: pred',pred_bbox, 'gt',exp_bbox)
-                plt.gca().add_patch(matplotlib.patches.Rectangle((pred_bbox[0], pred_bbox[1]), pred_bbox[2], pred_bbox[3], ec='r', fc='none'))
-                #gt
-                plt.gca().add_patch(matplotlib.patches.Rectangle((exp_bbox[0], exp_bbox[1]), exp_bbox[2], exp_bbox[3], ec='b', fc='none'))
-
-                plt.annotate(
-                    'IOU:{:.2f},{}'.format(self.bbox_iou(pred_bbox, exp_bbox),self.shape_labels[pred_class]),
-                    (pred_bbox[0], pred_bbox[1]+pred_bbox[3]+0.2),
-                    color=self.shape_labels_colors[pred_class])
-                if not legend_plotted:
-                    legend_plotted = True
-                    plt.gca().legend(['Pred','GT'],loc='upper center', bbox_to_anchor=(0.5, -0.5), fancybox=True)
-        plt.show()
-        # plt.savefig('plots/bw-single-rectangle_prediction_{0:%Y-%m-%d%H:%M:%S}.png'.format(datetime.datetime.now()), dpi=300)
 
     def grv_mean_iou(self,pred,gt):
+        print('Calculating IOU.')
         print('#This function needs to be improved. There may be a way to achieve a better iou when relating gt x pred bboxes.')
         _pred = np.copy(pred)
         gt = np.copy(gt)
