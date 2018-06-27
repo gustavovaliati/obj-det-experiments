@@ -199,6 +199,14 @@ def main(unused_argv):
     mean_IOU = summed_IOU / len(pred_bboxes)
     print('mean_IOU:',mean_IOU)
 
+
+    summed_IOU = 0.
+    for pred_bbox, test_bbox in zip(pred_bboxes, test_bboxes):
+        # print(pred_bbox[0], test_bbox)
+        summed_IOU += dataset.bbox_iou(pred_bbox[0], test_bbox)
+    mean_IOU = summed_IOU / len(pred_bboxes)
+    print('mean_IOU (bbox_iou):',mean_IOU)
+
     pred_labels = np.full((pred_bboxes.shape[0],1),0)
     pred_scores = np.full((pred_bboxes.shape[0],1),0)
     gt_bboxes = test_bboxes.reshape(-1,1,4)

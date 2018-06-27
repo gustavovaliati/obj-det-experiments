@@ -83,6 +83,40 @@ class JriekeBboxDataset:
 
         return I / U
 
+    def bbox_iou(self,boxA, boxB):
+        #From: https://www.pyimagesearch.com/2016/11/07/intersection-over-union-iou-for-object-detection/
+
+        # A) x1,y2,w,h
+        A_x1, A_y1, A_w, A_h = boxA[0], boxA[1], boxA[2], boxA[3]
+        # A) x2,y2
+        A_x2, A_y2 = A_x1 + A_w, A_y1 + A_h
+
+        # B) x1,y2,w,h
+        B_x1, B_y1, B_w, B_h = boxB[0], boxB[1], boxB[2], boxB[3]
+        # B) x2,y2
+        B_x2, B_y2 = B_x1 + B_w, B_y1 + B_h
+
+        xA = max(A_x1, B_x1)
+        yA = max(A_y1, B_y1)
+        xB = min(A_x2, B_x2)
+        yB = min(A_y2, B_y2)
+
+        # compute the area of intersection rectangle
+        interArea = (xB - xA + 1) * (yB - yA + 1)
+
+        # compute the area of both the prediction and ground-truth
+        # rectangles
+        boxAArea = (A_x2 - A_x1 + 1) * (A_y2 - A_y1 + 1)
+        boxBArea = (B_x2 - B_x1 + 1) * (B_y2 - B_y1 + 1)
+
+        # compute the intersection over union by taking the intersection
+        # area and dividing it by the sum of prediction + ground-truth
+        # areas - the interesection area
+        iou = interArea / float(boxAArea + boxBArea - interArea)
+
+        # return the intersection over union value
+        return iou
+
     def convertDefaultAnnotToCoord(self, annot):
         '''
         annot -> [x, y, w, h]

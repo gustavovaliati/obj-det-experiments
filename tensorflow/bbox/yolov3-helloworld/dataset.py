@@ -458,7 +458,7 @@ class HelloWorldDataset:
 
     def grv_mean_iou(self,pred,gt):
         print('Calculating IOU.')
-        print('#This function needs to be improved. There may be a way to achieve a better iou when relating gt x pred bboxes.')
+        print('#WARNING: This function needs to be improved. There may be a way to achieve a better iou when relating gt x pred bboxes.')
         pred = np.copy(pred)
         gt = np.copy(gt)
 
@@ -466,9 +466,12 @@ class HelloWorldDataset:
         pred_discard_control = []
         for p_bboxes in pred:
             '''
-            build a list of zeros according to the number of pred bboxes.
-            zeros means all pred bboxes are available
-            putting a UNAVAILABLE_FLAG in a determinated position means that bbox is unavailable.
+            Build a list of zeros according to the number of pred bboxes.
+            Each image prediction can output a different number of bboxes. That is not good
+            to work in numpy, mainly because the general shape is undefined.
+
+            We put a zero for each predicted bbox, meaning they are available.
+            Putting a UNAVAILABLE_FLAG in a determinated position means that bbox is unavailable.
             '''
             pred_discard_control.append(np.zeros((len(p_bboxes))))
 

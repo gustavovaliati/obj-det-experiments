@@ -159,7 +159,7 @@ class Conv_net_03:
 
         If image is 16x16, then: 16 -> 14 -> 12 -> 5. Final layer output is [5]x5xn_outputs_per_cell
         '''
-        self.n_grid = 3
+        self.n_grid = 5
         if self.n_grid < 4 and self.n_grid < self.img_size:
             raise Exception(' The calculated n_grid value should be at least 4. Seems like the given img_size is too small, try minimum of 16x16. It also cannot be >= to img_size.')
 
@@ -201,24 +201,22 @@ class Conv_net_03:
         #lets say the image side size is 16
         #input 16x16x1
         conv1 = tf.layers.conv2d(x, filters=32, kernel_size=3, strides=1, activation=tf.nn.relu)
-
         #input 14x14x32
+        conv1 = tf.layers.max_pooling2d(conv1,2,2)
+
+        #input 7x7x64
         conv2 = tf.layers.conv2d(conv1, filters=64, kernel_size=3, strides=1, activation=tf.nn.relu)
 
-        #input 12x12x64
-        #Downsample
-        conv3 = tf.layers.conv2d(conv3, filters=128, kernel_size=3, strides=2, activation=tf.nn.relu)
+        conv3 = tf.layers.conv2d(conv2, filters=self.n_outputs_per_cell, kernel_size=1, strides=1, activation=tf.nn.relu)
 
-        #input 5x5x128
-        conv4 = tf.layers.conv2d(conv1, filters=256, kernel_size=3, strides=1, activation=tf.nn.relu)
 
-        #input 3x3x128
-        conv5 = tf.layers.conv2d(conv3, filters=self.n_outputs_per_cell, kernel_size=1, strides=1, activation=tf.nn.relu)
-
-        #expected output 3x3xn_outputs. We want n_outputs outputs per cell.
-        out = tf.contrib.layers.flatten(conv5)
+        #expected output 5x5xn_outputs. We want n_outputs outputs per cell.
+        out = tf.contrib.layers.flatten(conv3)
 
         return out
+
+
+
 
 def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False):
     '''
