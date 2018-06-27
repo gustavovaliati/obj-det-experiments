@@ -435,7 +435,6 @@ class HelloWorldDataset:
         legend_plotted = False
         for i_subplot in range(1, 6):
             plt.subplot(1, 5, i_subplot)
-            print('self.test_imgs',self.test_imgs.shape)
             plt.imshow(self.test_imgs[i_subplot-1], cmap='Greys', interpolation='none', origin='lower', extent=[0, self.img_size, 0, self.img_size])
 
             for pred_data, gt_data in zip(predictions[i_subplot-1],gt[i_subplot-1]):
@@ -448,7 +447,7 @@ class HelloWorldDataset:
                 print('pred_bbox',pred_bbox)
                 plt.gca().add_patch(matplotlib.patches.Rectangle((pred_bbox[0], pred_bbox[1]), pred_bbox[2], pred_bbox[3], ec='r', fc='none'))
                 #gt
-                plt.gca().add_patch(matplotlib.patches.Rectangle((gt_bbox[0], gt_bbox[1]), gt_bbox[2], gt_bbox[3], ec='b', fc='none'))
+                # plt.gca().add_patch(matplotlib.patches.Rectangle((gt_bbox[0], gt_bbox[1]), gt_bbox[2], gt_bbox[3], ec='b', fc='none'))
 
                 plt.annotate(
                     'IOU:{:.2f},{}'.format(self.bbox_iou(pred_bbox, gt_bbox),self.shape_labels[pred_class]),
@@ -498,9 +497,16 @@ class HelloWorldDataset:
         plt.show()
         # plt.savefig('plots/bw-single-rectangle_prediction_{0:%Y-%m-%d%H:%M:%S}.png'.format(datetime.datetime.now()), dpi=300)
 
-    def grv_mean_iou(self,pred_, gt):
-        pred = []
-        pred.extend(pred_) #copy array
+    def grv_mean_iou(self,pred,gt):
+        print('#This function needs to be improved. There may be a way to achieve a better iou when relating gt x pred bboxes.')
+        _pred = np.copy(pred)
+        gt = np.copy(gt)
+
+        #add an extra column as flag. If the value is different than zero the bbox should not be considered anymore
+        control_column_idx = _pred.shape[2]
+        DISCARDED_FLAG = 1
+        pred = np.zeros((_pred.shape[0],_pred.shape[1],control_column_idx+1))
+        pred[:,:,:-1] = _pred
 
         iou_scores = [] #average iou per image
 
@@ -515,9 +521,11 @@ class HelloWorldDataset:
 
                 #get the predicitions for the same image
                 for pred_bbox in pred[img_index]:
+                    if pred_bbox[control_column_idx] == DISCARDED_FLAG:
+                        continue
 
                     #calculate the iou of all predictions for this gt.
-                    iou = self.bbox_iou(pred_bbox, gt_bbox)
+                    iou = self.bbox_iou_centered(pred_bbox, gt_bbox)
                     # print('comparing pred, gt, iou',pred_bbox,gt_bbox,iou)
                     gt_bbox_iou_scores.append(iou)
 
@@ -528,7 +536,9 @@ class HelloWorldDataset:
                     best_pred = np.argmax(gt_bbox_iou_scores)
                     # print('for gt_bbox the best_iou',gt_bbox, gt_bbox_iou_scores[best_pred])
                     img_iou_scores.append(gt_bbox_iou_scores[best_pred]) #save the best iou for the gt
-                    del pred[img_index][best_pred] #remove so that it cannot be reused for other gts
+
+                    #Mask to discard, so that it cannot be reused for other gts
+                    pred[img_index][best_pred][control_column_idx] = DISCARDED_FLAG
 
             #now we average the iou scores for this image and save it.
             iou_scores.append(np.average(img_iou_scores))

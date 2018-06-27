@@ -133,13 +133,13 @@ def run_model():
     results = np.array(list(predict_results))
     print('results shape',results.shape)
 
-    pred = translate_from_model_pred(new_test_y, curr_model.get_config(),verbose=True,obj_threshold=0.01)
-    # pred = translate_from_model_pred(results, curr_model.get_config(),verbose=True,obj_threshold=0.01)
+    # pred = translate_from_model_pred(new_test_y, curr_model.get_config(),verbose=False,obj_threshold=0.01)
+    pred = translate_from_model_pred(results, curr_model.get_config(),verbose=False,obj_threshold=0.01)
     for p in pred:
         print('p',p)
 
-    mean_iou, iou_per_image = dataset.grv_mean_iou(pred,gt=test_y)
-    print('mean_iou',mean_iou)
+    # mean_iou, iou_per_image = dataset.grv_mean_iou(pred,gt=test_y)
+    # print('mean_iou',mean_iou)
 
     dataset.show_predicted(predictions=pred,gt=test_y)
 

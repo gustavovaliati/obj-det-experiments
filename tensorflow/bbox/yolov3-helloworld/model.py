@@ -148,6 +148,7 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
     '''
 
     def get_cell_for_gt(gt_bbox, n_grid, img_size):
+        #TODO img_size is zero indexed? Fix all the code.
         '''
         Returns the center of the reponsible cell for the given bbox
 
@@ -155,7 +156,7 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
         img_size = 16
         n_grid = 5
 
-        slice_size = int(15/5 = 3.2) = 3
+        slice_size = int(16/5 = 3.2) = 3
 
         In the case of having some space left in the grid, we put all in the last grid line/column.
 
@@ -181,13 +182,13 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
             x_in_slice_index = n_grid-1
 
         #finds the first pixel of the next slice, and subtracts half of the slice size to find the center of the cell
-        cell_x = ((x_in_slice_index+1) * slice_size) - (slice_size/2)
+        cell_x = ((x_in_slice_index+1) * slice_size) - int(slice_size/2)
 
         y_in_slice_index = int(y_center / slice_size)
         if y_in_slice_index+1 > n_grid :
             y_in_slice_index = n_grid-1
 
-        cell_y = ((y_in_slice_index+1) * slice_size) - (slice_size/2)
+        cell_y = ((y_in_slice_index+1) * slice_size) - int(slice_size/2)
 
         cell_index = (x_in_slice_index, y_in_slice_index)
 
@@ -274,24 +275,24 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
 
     for img_index, img_gt in enumerate(gt):
         if verbose:
-            print('img_gt',img_gt)
-        for obj_gt in img_gt:
+            print('IMAGE INDEX: ',img_index)
+        for obj_gt_normalized in img_gt:
             if verbose:
-                print('for gt:',obj_gt)
+                print('for gt:',obj_gt_normalized)
 
-            obj_gt_normalized_backup = []
+            obj_gt_denormalized = []
             if normalized:
                 #Denormalize
-                obj_gt_normalized_backup.extend(obj_gt)
-                obj_gt[0] = obj_gt[0] * config['img_size']
-                obj_gt[1] = obj_gt[1] * config['img_size']
-                obj_gt[2] = obj_gt[2] * config['img_size']
-                obj_gt[3] = obj_gt[3] * config['img_size']
+                obj_gt_denormalized.extend(obj_gt_normalized)
+                obj_gt_denormalized[0] = obj_gt_normalized[0] * config['img_size']
+                obj_gt_denormalized[1] = obj_gt_normalized[1] * config['img_size']
+                obj_gt_denormalized[2] = obj_gt_normalized[2] * config['img_size']
+                obj_gt_denormalized[3] = obj_gt_normalized[3] * config['img_size']
                 if verbose:
-                    print('denormalized to:', obj_gt)
+                    print('denormalized to:', obj_gt_denormalized)
 
 
-            cell_index, best_anchor_index, best_anchor = get_best_anchor_for_gt(obj_gt,  config['n_grid'], config['img_size'])
+            cell_index, best_anchor_index, best_anchor = get_best_anchor_for_gt(obj_gt_denormalized,  config['n_grid'], config['img_size'])
             if verbose:
                 print('cell_index, best_anchor_index, best_anchor',cell_index, best_anchor_index,best_anchor)
 
@@ -300,27 +301,29 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
             #Calculate the offsets.
 
             #The x,y are relative to the cell.
-            top_left_cell_x, top_left_cell_y = find_cell_topleft(cell_index,config) # returns scaled
+            top_left_cell_x_norm, top_left_cell_y_norm = find_cell_topleft(cell_index,config) # returns normalized
             if verbose:
-                print('top_left',top_left_cell_x,top_left_cell_y)
+                print('top_left norm',top_left_cell_x_norm,top_left_cell_y_norm)
 
-            #This is denormalized
-            gt_x, gt_y, gt_w, gt_h, gt_class = obj_gt[0],obj_gt[1],obj_gt[2],obj_gt[3],int(obj_gt[4])
+            gt_x_norm, gt_y_norm, gt_w_norm, gt_h_norm, gt_class = obj_gt_normalized[0],obj_gt_normalized[1],obj_gt_normalized[2],obj_gt_normalized[3],int(obj_gt_normalized[4])
 
             #Find the offset from the topleft of the cell
-            offset_x = gt_x - top_left_cell_x # This is denormalized
-            offset_x_cell_norm = offset_x / config['cell_side'] #normalize in the cell scale
+            offset_x_norm = gt_x_norm - top_left_cell_x_norm
+            offset_x_denorm = offset_x_norm * config['img_size']
+            offset_x_cell_norm = offset_x_denorm / config['cell_side'] #normalize in the cell scale
 
-            offset_y = gt_y - top_left_cell_y
-            offset_y_cell_norm = offset_y / config['cell_side'] #normalize in the grid scale
+            offset_y_norm = gt_y_norm - top_left_cell_y_norm
+            offset_y_denorm = offset_y_norm * config['img_size']
+            offset_y_cell_norm = offset_y_denorm / config['cell_side'] #normalize in the cell scale
+
             if verbose:
-                print('offset_x,offset_y',offset_x_cell_norm,offset_y_cell_norm)
+                print('offset_x_cell_norm,offset_y_cell_norm,offset_x,offset_y',offset_x_cell_norm,offset_y_cell_norm,offset_x_denorm,offset_y_denorm)
 
             #Normalize
-            gt_w_norm = gt_w / config['img_size']
-            gt_h_norm = gt_h / config['img_size']
             anchor_w_norm = anchor_w / config['img_size']
             anchor_h_norm = anchor_h / config['img_size']
+            if verbose:
+                print('anchor_w_norm,anchor_h_norm',anchor_w_norm,anchor_h_norm)
 
             #expoent_w and expoent_h are what the network is going to output in a prediciton
             #So we they gt here.
@@ -386,19 +389,20 @@ def find_cell_topleft(cell_index,config):
 
     topleft_x = column_index * cell_slice_size
     topleft_y = row_index * cell_slice_size
-    print('find_cell_topleft: topleft_x,topleft_y',topleft_x,topleft_y)
+    # print('find_cell_topleft: topleft_x,topleft_y',topleft_x,topleft_y)
 
     # returns normalized
     return topleft_x / config['img_size'], topleft_y / config['img_size']
 
 def calc_scaled_from_offsets(offseted_bboxes, config, anchor_index, cell_index):
-    print('offseted_bboxes',offseted_bboxes)
+    # print('offseted_bboxes',offseted_bboxes)
     x_offset, y_offset, w_offset_expoent, h_offset_expoent = offseted_bboxes[0],offseted_bboxes[1],offseted_bboxes[2],offseted_bboxes[3]
 
     #force the predicted x and y to be between 0 and 1 with a sigmoid func.
-    print('WARNING: should use the sigmoid func?')
-    x_offset = expit(x_offset)
-    y_offset = expit(y_offset)
+    # print('antes do expit x_offset, y_offset',x_offset,y_offset)
+    # x_offset = expit(x_offset)
+    # y_offset = expit(y_offset)
+    # print('depois do expit x_offset, y_offset',x_offset,y_offset)
 
     model_anchor = config['anchors'][anchor_index]
     anchor_w, anchor_h = model_anchor[0], model_anchor[1]
@@ -459,16 +463,13 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
             for anchor_index, prediction_unit in enumerate(anchors):
                 # print('prediction_unit',prediction_unit)
                 P, x_offset, y_offset, w_offset, h_offset = prediction_unit[0],prediction_unit[1],prediction_unit[2],prediction_unit[3],prediction_unit[4]
-                pred_class = 0
-                if len(prediction_unit) > 5:
-                    pred_class = np.argmax(prediction_unit[5:-1])
-                x,y,w,h = calc_scaled_from_offsets([x_offset, y_offset, w_offset, h_offset],config,anchor_index,cell_index)
-
 
                 if P >= obj_threshold:
+                    pred_class = 0
+                    if len(prediction_unit) > 5:
+                        pred_class = np.argmax(prediction_unit[5:])
+                        x,y,w,h = calc_scaled_from_offsets([x_offset, y_offset, w_offset, h_offset],config,anchor_index,cell_index)
                     print('P,prediction_unit,traslation',P,prediction_unit,[x,y,w,h,pred_class])
                     translated_img_output.append([x,y,w,h,pred_class])
-                    print('translated_img_output',len(translated_img_output))
         translated_output.append(translated_img_output)
-    print('len pred',len(pred))
     return translated_output
