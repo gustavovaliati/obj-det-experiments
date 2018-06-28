@@ -331,6 +331,11 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
         has its meaning/function among anchors, grids, classes etec.
         '''
 
+        '''
+        WARNING: this code finds the best anchor no matter if it is
+        already been used for another bbox.
+        '''
+
         cell_index,cell_center_x,cell_center_y = get_cell_for_gt(gt_bbox, n_grid, img_size)
 
         anchors = get_anchors_by_cell(cell_center_x, cell_center_y)
@@ -438,6 +443,12 @@ def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False)
             if verbose:
                 print('gt_output',gt_output)
 
+            '''
+            WARNING
+            Our best_anchor_index is not unique attached to a gt bbox.
+            That means, multiple gt could receive the same best_anchor_index if they are close enough.
+            When this happens only the last gt attached to that specific anchor will last.
+            '''
             replacing_positions = get_positions_for_anchorindex(cell_index, best_anchor_index, len(gt_output), len(config['anchors']))
 
             # We replace a specific location from the entire output corresponding to the gt bbox.
@@ -567,6 +578,71 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
                         x,y,w,h = calc_scaled_from_offsets([x_offset, y_offset, w_offset, h_offset],config,anchor_index,cell_index)
                         if verbose:
                             print('P,prediction_unit,traslation',P,prediction_unit,[x,y,w,h,pred_class])
-                    translated_img_output.append([x,y,w,h,pred_class])
+                    translated_img_output.append([x,y,w,h,pred_class,P])
         translated_output.append(translated_img_output)
     return translated_output
+
+def do_nms(predictions, model_config, iou_func=None, iou_threshold=0.5,verbose=False):
+    '''
+    This function is going to filter out the bboxes that:
+        - Are from the same class and have high iou with each other.
+    '''
+    if not iou_func:
+        raise Exception('The iou_func parameter must be provided.')
+
+    SUPPRESS_FLAG = 1
+    predictions_output = []
+    for img_index, img_preds in enumerate(predictions):
+        if verbose:
+            print('For img index',img_index)
+        #Do NMS per class
+        img_preds = np.array(img_preds)
+        img_preds_output = []
+        for class_id in range(model_config['n_classes']):
+            '''
+            A single prediction has 'x,y,w,h,class,object_probability'
+            '''
+            curr_class_preds = img_preds[img_preds[:,4] == class_id]
+            if len(curr_class_preds) == 0:
+                #there is no predictions for this class
+                continue
+
+            #sort descending by object_probability
+            curr_class_preds = curr_class_preds[curr_class_preds[:,5].argsort()[::-1]]
+
+            '''
+            Get the bbox with the highest score, which is the first.
+            And compare among the other bboxes.
+            High IOU probably means they belong to the same object,
+            so we remove it.
+            '''
+            supression_control = np.zeros((len(curr_class_preds)))
+            for main_bbox_index, main_bbox in enumerate(curr_class_preds):
+                if supression_control[main_bbox_index] == SUPPRESS_FLAG:
+                    #this bboxes may have been suppressed in other loop
+                    continue
+                for compare_bbox_index, compare_bbox in enumerate(curr_class_preds):
+                    if main_bbox_index == compare_bbox_index or supression_control[compare_bbox_index] == SUPPRESS_FLAG:
+                        #do not compare the bbox with itself.
+                        # and do not compare already supressed bboxes
+                        continue
+                    iou = iou_func(main_bbox,compare_bbox)
+                    if iou >= iou_threshold:
+                        if verbose:
+                            print('kept {} and supressed {}'.format(main_bbox_index,compare_bbox_index))
+                        #This compared bbox should be suppressed
+                        supression_control[compare_bbox_index] = SUPPRESS_FLAG
+
+            #Get only the non-supressed bboxes
+            if verbose:
+                print('supression_control for class', class_id,supression_control)
+            curr_class_preds = curr_class_preds[ supression_control == 0 ]
+
+            if len(img_preds_output) == 0:
+                img_preds_output = curr_class_preds
+            else:
+                img_preds_output = np.concatenate([img_preds_output,curr_class_preds])
+
+        predictions_output.append(img_preds_output)
+
+    return predictions_output

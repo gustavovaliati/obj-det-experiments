@@ -7,8 +7,6 @@ import argparse, os
 from dataset import HelloWorldDataset
 from model import *
 
-tf.logging.set_verbosity(tf.logging.INFO)
-
 ap = argparse.ArgumentParser()
 ap.add_argument("-c", "--checkpoint",
     required = False,
@@ -45,6 +43,11 @@ ap.add_argument("-m", "--model_id",
     default=1,
     type=int,
     help = "Defines which model is going to be used.")
+ap.add_argument("-v", "--verbose",
+    required=False,
+    default=False,
+    type=bool,
+    help = "Enables verbosity")
 ARGS = ap.parse_args()
 
 if ARGS.num_imgs < 30:
@@ -60,6 +63,9 @@ elif ARGS.model_id == 3:
 else:
     raise Exception('The given model id does not exist.')
 
+if ARGS.verbose:
+    tf.logging.set_verbosity(tf.logging.INFO)
+
 print('Using model',curr_model.get_name())
 
 def cnn_model_fn(features, labels, mode):
@@ -69,7 +75,8 @@ def cnn_model_fn(features, labels, mode):
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         return tf.estimator.EstimatorSpec(mode, predictions=logits_test)
-    print('labels.shape,logits_train.shape',labels.shape,logits_train.shape)
+    if ARGS.verbose:
+        print('labels.shape,logits_train.shape',labels.shape,logits_train.shape)
     loss_op = tf.losses.mean_squared_error(labels=labels, predictions=logits_train)
 
     optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
@@ -98,13 +105,14 @@ def run_model():
 
     train_data, train_y, test_data, test_y = dataset.generate()
 
-    # Show the shapes
-    print(
-        'Shapes: ',
-        'train_data', train_data.shape,
-        'train_y', train_y.shape,
-        'test_data', test_data.shape,
-        'test_y', test_y.shape)
+    if ARGS.verbose:
+        # Show the shapes
+        print(
+            'Shapes: ',
+            'train_data', train_data.shape,
+            'train_y', train_y.shape,
+            'test_data', test_data.shape,
+            'test_y', test_y.shape)
 
     print('Translating gt...')
     new_train_y = translate_to_model_gt(train_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True)
@@ -145,22 +153,27 @@ def run_model():
         input_fn=eval_input_fn,
         checkpoint_path=ARGS.checkpoint
         )
-    print('eval_results',eval_results)
+    if ARGS.verbose:
+        print('eval_results',eval_results)
 
     # Predict
     predict_results = estimator.predict(input_fn=eval_input_fn)
     results = np.array(list(predict_results))
-    print('results shape',results.shape)
+    if ARGS.verbose:
+        print('results shape',results.shape)
 
-    pred = translate_from_model_pred(results, curr_model.get_config(),verbose=False,obj_threshold=0.1)
-    # pred = translate_from_model_pred(new_test_y, curr_model.get_config(),verbose=False,obj_threshold=0.1)
+    pred_translated = translate_from_model_pred(results, curr_model.get_config(),verbose=False,obj_threshold=0.1)
+    pred = do_nms(pred_translated, model_config=curr_model.get_config(), iou_func=dataset.bbox_iou_centered)
 
-    print('Camera ready predictions...')
-    for img_index, img_p in enumerate(pred):
-        for obj_index, obj_p in enumerate(img_p):
-            for obj_gt in test_y[img_index]:
-                iou = dataset.bbox_iou_centered(obj_gt,obj_p)
-                print("For img {} - gt {} <-> pred {} has iou of {}".format(img_index,obj_gt,obj_p,iou))
+    if ARGS.verbose:
+        print('Camera ready predictions (first 10 imgs)...')
+        for img_index, img_p in enumerate(pred):
+            if img_index >= 10:
+                break
+            for obj_index, obj_p in enumerate(img_p):
+                for obj_gt in test_y[img_index]:
+                    iou = dataset.bbox_iou_centered(obj_gt,obj_p)
+                    print("For img {} - gt {} <-> pred {} has iou of {}".format(img_index,obj_gt,obj_p,iou))
 
     mean_iou, iou_per_image = dataset.grv_mean_iou(pred,gt=test_y)
     print('mean_iou',mean_iou)

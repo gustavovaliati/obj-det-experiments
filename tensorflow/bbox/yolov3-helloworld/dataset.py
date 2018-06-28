@@ -15,7 +15,7 @@ from tqdm import tqdm
 class HelloWorldDataset:
     def __init__(self, num_imgs = 50000, min_object_size = 2, max_object_size = 10,
         num_objects = 1, img_size = 16, train_proportion = 0.8,
-        shape_number=2):
+        shape_number=2,allow_overlap=False):
 
         self.num_imgs = num_imgs
         self.min_object_size = min_object_size
@@ -36,6 +36,8 @@ class HelloWorldDataset:
         self.shape_number = shape_number
         self.shape_labels = ['rectangle','circle','triangle']
         self.shape_labels_colors = ['g','y','c']
+
+        self.allow_overlap = allow_overlap
 
     def generate(self):
         print('Generating the dataset...')
@@ -110,7 +112,10 @@ class HelloWorldDataset:
                         accumulated_iou += self.bbox_iou_centered(
                             self.denormalize(self.y[i_img][i_object_compare]),
                             self.denormalize(self.y[i_img][i_object_other]))
-                has_overlap = True if accumulated_iou > 0.0 else False
+                if self.allow_overlap:
+                    has_overlap = False
+                else:
+                    has_overlap = True if accumulated_iou > 0.0 else False
 
         print("Shapes: imgs ", self.imgs.shape)
         print('Dataset: y shape', self.y.shape)
@@ -449,8 +454,8 @@ class HelloWorldDataset:
 
                 plt.gca().add_patch(matplotlib.patches.Rectangle((pred_bbox[0], pred_bbox[1]), pred_bbox[2], pred_bbox[3], ec='r', fc='none',lw=1.0,ls='solid'))
 
-                plt.annotate('{}'.format(self.shape_labels[pred_class]), (pred_bbox[0], pred_bbox[1]+pred_bbox[3]+0.2),
-                    color=self.shape_labels_colors[pred_class])
+                plt.annotate('{}'.format(self.shape_labels[int(pred_class)]), (pred_bbox[0], pred_bbox[1]+pred_bbox[3]+0.2),
+                    color=self.shape_labels_colors[int(pred_class)])
                 if not legend_plotted:
                     legend_plotted = True
                     plt.gca().legend(['Pred','GT'],loc='upper center', bbox_to_anchor=(0.5, -0.5), fancybox=True)
