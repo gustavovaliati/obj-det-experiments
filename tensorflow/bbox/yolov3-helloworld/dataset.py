@@ -10,6 +10,7 @@ import random
 # import cairo,math
 from skimage.draw import circle, polygon
 from tqdm import tqdm
+import h5py, os
 
 
 class HelloWorldDataset:
@@ -39,7 +40,45 @@ class HelloWorldDataset:
 
         self.allow_overlap = allow_overlap
 
-    def generate(self):
+    def save_dataset(self,dataset_path=None, imgs=[],y=[]):
+        if not dataset_path or len(imgs)==0 or len(y)==0:
+            raise Exception('Missing parameters.')
+
+        os.makedirs(dataset_path, exist_ok=True)
+
+        imgs_file_path = "{}/{}_imgs.hdf5".format(dataset_path,self.get_dataset_name())
+        y_file_path = "{}/{}_y.hdf5".format(dataset_path,self.get_dataset_name())
+
+        with h5py.File(imgs_file_path, "w") as imgs_f:
+            imgs_dataset = imgs_f.create_dataset("imgs", (self.num_imgs, self.WIDTH, self.HEIGHT) , dtype='f',data=imgs)
+        with h5py.File(y_file_path, "w") as y_f:
+            y_dataset = y_f.create_dataset("y", (self.num_imgs, self.num_objects, 5), dtype='f', data=y)
+
+    def load_or_generate(self,dataset_path=None,save=True):
+        if not dataset_path:
+            raise Exception('The dataset_path must be provided.')
+
+        print('Trying to load dataset...')
+        imgs_file_path = "{}/{}_imgs.hdf5".format(dataset_path,self.get_dataset_name())
+        y_file_path = "{}/{}_y.hdf5".format(dataset_path,self.get_dataset_name())
+        if os.path.exists(imgs_file_path) and os.path.exists(y_file_path):
+            with h5py.File(imgs_file_path, "r") as imgs_f:
+                # imgs_dataset = imgs_f.create_dataset("imgs", (self.num_imgs, self.WIDTH, self.HEIGHT), dtype='f')
+                # self.imgs = np.zeros((self.num_imgs, self.WIDTH, self.HEIGHT),dtype=np.double)
+                # imgs_dataset.read_direct(self.imgs)
+                self.imgs = np.array(imgs_f['imgs'])
+            with h5py.File(y_file_path, "r") as y_f:
+                # y_dataset = y_f.create_dataset("y", (self.num_imgs, self.num_objects, 5), dtype='f')
+                # self.y = np.zeros((self.num_imgs, self.num_objects, 5))
+                # y_dataset.read_direct(self.y)
+                self.y = np.array(y_f['y'])
+
+            return self.split_dataset()#train_X, train_y, test_X, test_y
+        else:
+            print('The dataset has not been found in the disk. Gererating it...')
+            return self.generate(save_path=dataset_path) #train_X, train_y, test_X, test_y
+
+    def generate(self,save_path=None):
         print('Generating the dataset...')
         self.y = np.zeros((self.num_imgs, self.num_objects, 5)) #one for the class
         self.imgs = np.zeros((self.num_imgs, self.WIDTH, self.HEIGHT),dtype=np.double)
@@ -120,6 +159,12 @@ class HelloWorldDataset:
         print("Shapes: imgs ", self.imgs.shape)
         print('Dataset: y shape', self.y.shape)
 
+        if save_path:
+            self.save_dataset(dataset_path=save_path, imgs=self.imgs,y=self.y)
+
+        return self.split_dataset() #train_X, train_y, test_X, test_y
+
+    def split_dataset(self):
         # Split training and test.
         i = int(self.train_proportion * self.num_imgs)
         train_X = self.imgs[:i] #80% for training
@@ -128,9 +173,6 @@ class HelloWorldDataset:
         test_y = self.y[i:]
         self.test_imgs = self.imgs[i:]
         self.test_bboxes = self.y[i:]
-
-        # print('inside the generated',self.y[0],test_y[0],train_y[0])
-
         return train_X, train_y, test_X, test_y
 
     def get_dataset_name(self):

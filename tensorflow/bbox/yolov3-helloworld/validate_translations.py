@@ -12,11 +12,12 @@ dataset = HelloWorldDataset(
     shape_number=CLASSES_NUMBER,
     img_size=IMG_SIZE,
     train_proportion=0.8,
-    num_imgs=30,
+    num_imgs=10000,
     allow_overlap=True)
 
 #The test_y is also going to be used as simulated perfect predictions.
-train_data, train_y, test_data, test_y = dataset.generate()
+# train_data, train_y, test_data, test_y = dataset.generate()
+train_data, train_y, test_data, test_y = dataset.load_or_generate(dataset_path='./datasets')
 # dataset.show_generated()
 
 print('Printing the GT/PRED (limit max to 10)')
@@ -36,9 +37,11 @@ If our translation process is correct, we should plot perfect predictions.
 pred_translated = translate_from_model_pred(new_test_y, curr_model.get_config(),verbose=False,obj_threshold=0.01)
 pred = do_nms(pred_translated, model_config=curr_model.get_config(), iou_func=dataset.bbox_iou_centered)
 
-print('Camera ready predictions...')
+print('Camera ready predictions (first 10 imgs)...')
 for img_index, img_p in enumerate(pred):
     for obj_index, obj_p in enumerate(img_p):
+        if img_index >= 10:
+            break
         for obj_gt in test_y[img_index]:
             iou = dataset.bbox_iou_centered(obj_gt,obj_p)
             print("For img {} - gt {} <-> pred {} has iou of {}".format(img_index,obj_gt,obj_p,iou))

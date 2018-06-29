@@ -103,7 +103,9 @@ def run_model():
         train_proportion=0.8,
         num_imgs=ARGS.num_imgs)
 
-    train_data, train_y, test_data, test_y = dataset.generate()
+    # train_data, train_y, test_data, test_y = dataset.generate()
+    train_data, train_y, test_data, test_y = dataset.load_or_generate(dataset_path='./datasets')
+
 
     if ARGS.verbose:
         # Show the shapes
