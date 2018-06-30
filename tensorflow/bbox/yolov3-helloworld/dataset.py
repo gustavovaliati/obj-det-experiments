@@ -176,7 +176,7 @@ class HelloWorldDataset:
         return train_X, train_y, test_X, test_y
 
     def get_dataset_name(self):
-        return "dataset_{}{}{}{}{}{}{}".format(self.num_imgs,self.min_object_size,self.max_object_size,self.num_objects,self.img_size,self.train_proportion,self.shape_number)
+        return "dataset_{}{}{}{}{}{}{}{}".format(self.num_imgs,self.min_object_size,self.max_object_size,self.num_objects,self.img_size,self.train_proportion,self.shape_number,self.allow_overlap)
 
     def generate_cairo(self):
         raise Exception('This generates images with dtype=np.uint8 which is incompatible with tensorflow operations')
@@ -477,6 +477,10 @@ class HelloWorldDataset:
         plt.show()
 
     def show_predicted(self, predictions, gt, show_gt=False):
+        if len(predictions) == 0:
+            print('There are no predictions to plot.')
+            return
+
         fig = plt.figure(figsize=(12, 3))
         fig.subplots_adjust(top=0.85)
         fig.suptitle('Prediction demonstration. Random samples.')
@@ -506,6 +510,9 @@ class HelloWorldDataset:
     def grv_mean_iou(self,pred,gt):
         print('Calculating IOU.')
         print('#WARNING: This function needs to be improved. There may be a way to achieve a better iou when relating gt x pred bboxes.')
+        if len(pred) == 0:
+            print('There are no predictions to calculate mean_iou.')
+            return 0.0,[]
         pred = np.copy(pred)
         gt = np.copy(gt)
 

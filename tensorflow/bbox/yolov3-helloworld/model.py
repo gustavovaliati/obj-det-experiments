@@ -215,8 +215,80 @@ class Conv_net_03:
 
         return out
 
+class Conv_net_04:
+    def __init__(self, img_size=None, img_channels=1, n_classes = None):
 
+        self.img_size = img_size
+        self.img_channels = img_channels
 
+        '''
+        n_grid refers to the number of slices the image is going to be divided,
+        generating a number of cells.
+        An image of 16x16 with n_grid==4, has 16 cells of 4x4 pixels each
+
+        The n_grid is calculated according to the model architecture.
+        Look to the layers outputs to understand the calculation.
+
+        If image is 16x16, then: 16 -> 14 -> 12 -> 5. Final layer output is [5]x5xn_outputs_per_cell
+        '''
+        self.n_grid = 4
+        if self.n_grid < 4 and self.n_grid < self.img_size:
+            raise Exception(' The calculated n_grid value should be at least 4. Seems like the given img_size is too small, try minimum of 16x16. It also cannot be >= to img_size.')
+
+        self.anchors = [[3,3],[5,5],[7,7]]
+        self.n_anchors_per_cell = len(self.anchors)
+
+        if not n_classes:
+            raise Exception('Missing number of classes')
+        self.n_classes = n_classes
+
+        self.n_bboxes =  self.n_grid*self.n_grid * self.n_anchors_per_cell
+        self.n_cells = self.n_grid * self.n_grid
+
+        # if we have only 1 class, we do not need to use the c in the output vector.
+        classes = self.n_classes if self.n_classes > 1 else 0
+        self.n_outputs_per_anchor = 5 + classes
+        self.n_outputs_per_cell = self.n_anchors_per_cell * self.n_outputs_per_anchor
+        self.n_outputs = self.n_bboxes * self.n_outputs_per_anchor
+
+    def get_name(self):
+        return 'Conv_net_04'
+
+    def get_config(self):
+        return {
+            'n_grid' : self.n_grid, #in how many slices the image is going to be divided
+            'cell_side' : int(self.img_size / self.n_grid), #WARNING: this may not be true for the last grid column/line due its possible bigger size.
+            'n_classes': self.n_classes,
+            'anchors' : self.anchors, #the default anchors per cell.
+            'img_size' : self.img_size,
+            'n_outputs' : self.n_outputs,
+            'n_cells' : self.n_cells,
+            'n_outputs_per_cell': self.n_outputs_per_cell,
+            'n_anchors_per_cell' : self.n_anchors_per_cell,
+            'n_bboxes': self.n_bboxes #total number of bboxes/anchors in each image
+        }
+
+    def get_model(self, x, reuse, is_training):
+        x = tf.reshape(x, shape=[-1, self.img_size, self.img_size, self.img_channels])
+        #based on https://github.com/jrieke/shape-detection/blob/master/color-multiple-shapes.ipynb
+        #if input 16x16x1
+        conv1 = tf.layers.conv2d(x, filters=32, kernel_size=(3,3), activation=tf.nn.relu)
+        #input 11x11x32
+        maxp1 = tf.layers.max_pooling2d(conv1,pool_size=(2,2),strides=(2,2))
+        #input 5x5x32
+        conv2 = tf.layers.conv2d(maxp1, filters=64, kernel_size=(2,2), activation=tf.nn.relu)
+        #input 4x4x64
+        maxp2 = tf.layers.max_pooling2d(conv2,pool_size=(2,2),strides=(2,2))
+        #input 2x2x64
+        conv3 = tf.layers.conv2d(maxp2, filters=128, kernel_size=(2,2), activation=tf.nn.relu)
+
+        conv4 = tf.layers.conv2d(conv3, filters=128, kernel_size=(2,2), activation=tf.nn.relu)
+        flat1 = tf.contrib.layers.flatten(conv4)
+        drop1 = tf.layers.dropout(flat1,rate=0.4,training=is_training)
+        dense1 = tf.layers.dense(drop1, units=256)
+        drop2 = tf.layers.dropout(dense1,rate=0.4,training=is_training)
+        out = tf.layers.dense(drop2, units=self.n_outputs)
+        return out
 
 def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False):
     '''
@@ -560,9 +632,10 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
 
     translated_output = []
 
-    for img_output in pred:
+    for img_index, img_output in enumerate(pred):
         translated_img_output = [] #put inside this all relevant predicted bboxes
         cells = np.split(img_output,config['n_cells'])
+        n_discarded = 0
         # print('cells',len(cells))
         for cell_index, cell in enumerate(cells):
             anchors = np.split(cell,config['n_anchors_per_cell'])
@@ -570,7 +643,6 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
             for anchor_index, prediction_unit in enumerate(anchors):
                 # print('prediction_unit',prediction_unit)
                 P, x_offset, y_offset, w_offset, h_offset = prediction_unit[0],prediction_unit[1],prediction_unit[2],prediction_unit[3],prediction_unit[4]
-
                 if P >= obj_threshold:
                     pred_class = 0
                     if len(prediction_unit) > 5:
@@ -579,6 +651,10 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
                         if verbose:
                             print('P,prediction_unit,traslation',P,prediction_unit,[x,y,w,h,pred_class])
                     translated_img_output.append([x,y,w,h,pred_class,P])
+                else:
+                    n_discarded += 1
+        if verbose:
+            print("For image {}: {}% of the pred bboxes have been discarded".format(img_index, (n_discarded*100)/ config['n_bboxes']))
         translated_output.append(translated_img_output)
     return translated_output
 
@@ -590,11 +666,22 @@ def do_nms(predictions, model_config, iou_func=None, iou_threshold=0.5,verbose=F
     if not iou_func:
         raise Exception('The iou_func parameter must be provided.')
 
+    if len(predictions) == 0:
+        print('There are no predictions to do nms.')
+        return
+
     SUPPRESS_FLAG = 1
     predictions_output = []
     for img_index, img_preds in enumerate(predictions):
         if verbose:
             print('For img index',img_index)
+
+        if len(img_preds) == 0:
+            if verbose:
+                print('There are no predictions.')
+            predictions_output.append([])
+            continue
+
         #Do NMS per class
         img_preds = np.array(img_preds)
         img_preds_output = []

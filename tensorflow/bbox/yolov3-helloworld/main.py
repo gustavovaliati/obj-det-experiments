@@ -48,6 +48,11 @@ ap.add_argument("-v", "--verbose",
     default=False,
     type=bool,
     help = "Enables verbosity")
+ap.add_argument("-e", "--epochs",
+    required=False,
+    default=1,
+    type=int,
+    help = "Number of epochs.")
 ARGS = ap.parse_args()
 
 if ARGS.num_imgs < 30:
@@ -60,11 +65,12 @@ elif ARGS.model_id == 2:
     curr_model = Conv_net_02(img_size=ARGS.img_size, n_classes=ARGS.obj_number)
 elif ARGS.model_id == 3:
     curr_model = Conv_net_03(img_size=ARGS.img_size, n_classes=ARGS.obj_number)
+elif ARGS.model_id == 4:
+    curr_model = Conv_net_04(img_size=ARGS.img_size, n_classes=ARGS.obj_number)
 else:
     raise Exception('The given model id does not exist.')
 
-if ARGS.verbose:
-    tf.logging.set_verbosity(tf.logging.INFO)
+tf.logging.set_verbosity(tf.logging.INFO)
 
 print('Using model',curr_model.get_name())
 
@@ -117,14 +123,14 @@ def run_model():
             'test_y', test_y.shape)
 
     print('Translating gt...')
-    new_train_y = translate_to_model_gt(train_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True)
-    new_test_y = translate_to_model_gt(test_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True, verbose=False)
-    print('Done.')
+    new_train_y = translate_to_model_gt(train_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True, verbose=ARGS.verbose)
+    new_test_y = translate_to_model_gt(test_y,curr_model.get_config(), dataset.bbox_iou_centered, normalized=True, verbose=ARGS.verbose)
 
     # Show a random sample from the dataset.
     # dataset.show_generated()
 
     # Create the Estimator
+    os.makedirs(ARGS.save_checkpoint, exist_ok=True)
     estimator = tf.estimator.Estimator(
         model_fn=cnn_model_fn, model_dir=os.path.dirname(ARGS.save_checkpoint))
 
@@ -135,7 +141,7 @@ def run_model():
             x=train_data,
             y=new_train_y,
             batch_size=64,
-            num_epochs=1,
+            num_epochs=ARGS.epochs,
             shuffle=True)
 
         estimator.train(
@@ -159,14 +165,16 @@ def run_model():
         print('eval_results',eval_results)
 
     # Predict
+    print('Predicting...')
     predict_results = estimator.predict(input_fn=eval_input_fn)
     results = np.array(list(predict_results))
     if ARGS.verbose:
         print('results shape',results.shape)
 
-    pred_translated = translate_from_model_pred(results, curr_model.get_config(),verbose=False,obj_threshold=0.1)
-    pred = do_nms(pred_translated, model_config=curr_model.get_config(), iou_func=dataset.bbox_iou_centered)
-
+    print('Translating predicitions...')
+    pred_translated = translate_from_model_pred(results, curr_model.get_config(),verbose=ARGS.verbose,obj_threshold=0.1)
+    print('Executing NMS...')
+    pred = do_nms(pred_translated, model_config=curr_model.get_config(), iou_func=dataset.bbox_iou_centered,verbose=ARGS.verbose)
     if ARGS.verbose:
         print('Camera ready predictions (first 10 imgs)...')
         for img_index, img_p in enumerate(pred):
@@ -178,13 +186,12 @@ def run_model():
                     print("For img {} - gt {} <-> pred {} has iou of {}".format(img_index,obj_gt,obj_p,iou))
 
     mean_iou, iou_per_image = dataset.grv_mean_iou(pred,gt=test_y)
-    print('mean_iou',mean_iou)
+    print('mean_iou: ',mean_iou)
 
     dataset.show_predicted(predictions=pred,gt=test_y)
 
 def main(unused_argv):
     run_model()
-
 
 if __name__ == "__main__":
     tf.app.run()
