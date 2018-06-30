@@ -12,12 +12,12 @@ ap.add_argument("-c", "--checkpoint",
     required = False,
     default = None,
     type=str,
-    help = "Load tensorflow checkpoint.")
-ap.add_argument("-sc", "--save_checkpoint",
-    required = False,
+    help = "Load tensorflow checkpoint. checkpoint_path: Path of a specific checkpoint to evaluate. If None, the latest checkpoint in model_dir is used.")
+ap.add_argument("-md", "--model_dir",
+    required = True,
     default = None,
     type=str,
-    help = "Dir to save tensorflow checkpoint.")
+    help = "Dir to save tensorflow checkpoint. Directory to save model parameters, graph and etc. This can also be used to load checkpoints from the directory into a estimator to continue training a previously saved model.")
 ap.add_argument("-n", "--obj_number",
     required=False,
     default=2,
@@ -85,7 +85,8 @@ def cnn_model_fn(features, labels, mode):
         print('labels.shape,logits_train.shape',labels.shape,logits_train.shape)
     loss_op = tf.losses.mean_squared_error(labels=labels, predictions=logits_train)
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+    # optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+    optimizer = tf.train.AdadeltaOptimizer(learning_rate=0.001)
     train_op = optimizer.minimize(loss_op, global_step=tf.train.get_global_step())
 
     acc_op = tf.metrics.accuracy(labels=labels, predictions=logits_test)
@@ -130,9 +131,9 @@ def run_model():
     # dataset.show_generated()
 
     # Create the Estimator
-    os.makedirs(ARGS.save_checkpoint, exist_ok=True)
+    os.makedirs(ARGS.model_dir, exist_ok=True)
     estimator = tf.estimator.Estimator(
-        model_fn=cnn_model_fn, model_dir=os.path.dirname(ARGS.save_checkpoint))
+        model_fn=cnn_model_fn, model_dir=os.path.dirname(ARGS.model_dir))
 
     if not ARGS.checkpoint:
         print("Training...")
@@ -159,7 +160,7 @@ def run_model():
 
     eval_results = estimator.evaluate(
         input_fn=eval_input_fn,
-        checkpoint_path=ARGS.checkpoint
+        checkpoint_path=ARGS.checkpoint #checkpoint_path: Path of a specific checkpoint to evaluate. If None, the latest checkpoint in model_dir is used.
         )
     if ARGS.verbose:
         print('eval_results',eval_results)

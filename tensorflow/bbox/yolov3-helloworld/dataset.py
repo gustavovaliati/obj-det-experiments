@@ -563,7 +563,10 @@ class HelloWorldDataset:
                     pred_discard_control[img_index][best_pred] = UNAVAILABLE_FLAG
 
             #now we average the iou scores for this image and save it.
-            iou_scores.append(np.average(img_iou_scores))
+            if len(img_iou_scores) > 0:
+                iou_scores.append(np.average(img_iou_scores))
+            else:
+                iou_scores.append(0.0)
 
         return np.average(iou_scores),iou_scores
 

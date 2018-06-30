@@ -622,9 +622,9 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
     prediction_unit : (P x y w h (n_classes * c) ) -> dimensions contains only offsets
     wanted output is like the gt: x,y,w,h,class -> dimensions are normalized to the image dimensions
     '''
-    n_pred = len(pred)
-    n_outputs_pred = len(pred)
     if verbose:
+        n_pred = len(pred)
+        n_outputs_pred = len(pred[0])
         print('Translating predicitions: ', n_pred)
         print('The predictions have outputs of size:', n_outputs_pred)
 
@@ -633,6 +633,8 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
     translated_output = []
 
     for img_index, img_output in enumerate(pred):
+        if verbose:
+            print('For image {}:'.format(img_index))
         translated_img_output = [] #put inside this all relevant predicted bboxes
         cells = np.split(img_output,config['n_cells'])
         n_discarded = 0
@@ -652,9 +654,10 @@ def translate_from_model_pred(pred, config, verbose=False, obj_threshold=0.5):
                             print('P,prediction_unit,traslation',P,prediction_unit,[x,y,w,h,pred_class])
                     translated_img_output.append([x,y,w,h,pred_class,P])
                 else:
+                    # print('Discarded. P: ',P)
                     n_discarded += 1
         if verbose:
-            print("For image {}: {}% of the pred bboxes have been discarded".format(img_index, (n_discarded*100)/ config['n_bboxes']))
+            print("{}% of the pred bboxes have been discarded".format((n_discarded*100)/ config['n_bboxes']))
         translated_output.append(translated_img_output)
     return translated_output
 
