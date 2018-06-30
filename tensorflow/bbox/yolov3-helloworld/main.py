@@ -67,6 +67,8 @@ elif ARGS.model_id == 3:
     curr_model = Conv_net_03(img_size=ARGS.img_size, n_classes=ARGS.obj_number)
 elif ARGS.model_id == 4:
     curr_model = Conv_net_04(img_size=ARGS.img_size, n_classes=ARGS.obj_number)
+elif ARGS.model_id == 5:
+    curr_model = Conv_net_05(img_size=ARGS.img_size, n_classes=ARGS.obj_number)
 else:
     raise Exception('The given model id does not exist.')
 

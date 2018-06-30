@@ -290,6 +290,75 @@ class Conv_net_04:
         out = tf.layers.dense(drop2, units=self.n_outputs)
         return out
 
+class Conv_net_05:
+    def __init__(self, img_size=None, img_channels=1, n_classes = None):
+
+        self.img_size = img_size
+        self.img_channels = img_channels
+
+        '''
+        n_grid refers to the number of slices the image is going to be divided,
+        generating a number of cells.
+        An image of 16x16 with n_grid==4, has 16 cells of 4x4 pixels each
+
+        The n_grid is calculated according to the model architecture.
+        Look to the layers outputs to understand the calculation.
+
+        If image is 16x16, then: 16 -> 14 -> 12 -> 5. Final layer output is [5]x5xn_outputs_per_cell
+        '''
+        self.n_grid = 5
+        if self.n_grid < 4 and self.n_grid < self.img_size:
+            raise Exception(' The calculated n_grid value should be at least 4. Seems like the given img_size is too small, try minimum of 16x16. It also cannot be >= to img_size.')
+
+        self.anchors = [[3,3],[5,5],[7,7]]
+        self.n_anchors_per_cell = len(self.anchors)
+
+        if not n_classes:
+            raise Exception('Missing number of classes')
+        self.n_classes = n_classes
+
+        self.n_bboxes =  self.n_grid*self.n_grid * self.n_anchors_per_cell
+        self.n_cells = self.n_grid * self.n_grid
+
+        # if we have only 1 class, we do not need to use the c in the output vector.
+        classes = self.n_classes if self.n_classes > 1 else 0
+        self.n_outputs_per_anchor = 5 + classes
+        self.n_outputs_per_cell = self.n_anchors_per_cell * self.n_outputs_per_anchor
+        self.n_outputs = self.n_bboxes * self.n_outputs_per_anchor
+
+    def get_name(self):
+        return 'Conv_net_05'
+    def get_config(self):
+        return {
+            'n_grid' : self.n_grid, #in how many slices the image is going to be divided
+            'cell_side' : int(self.img_size / self.n_grid), #WARNING: this may not be true for the last grid column/line due its possible bigger size.
+            'n_classes': self.n_classes,
+            'anchors' : self.anchors, #the default anchors per cell.
+            'img_size' : self.img_size,
+            'n_outputs' : self.n_outputs,
+            'n_cells' : self.n_cells,
+            'n_outputs_per_cell': self.n_outputs_per_cell,
+            'n_anchors_per_cell' : self.n_anchors_per_cell,
+            'n_bboxes': self.n_bboxes #total number of bboxes/anchors in each image
+        }
+
+    def get_model(self, x, reuse, is_training):
+        x = tf.reshape(x, shape=[-1, self.img_size, self.img_size, self.img_channels])
+        #lets say the image side size is 16
+        # Expected input 16x16x1
+        #Downsample
+        conv1 = tf.layers.conv2d(x, filters=32, kernel_size=3, strides=2, activation=tf.nn.relu)
+        #input 7x7x32
+        conv2 = tf.layers.conv2d(conv1, filters=64, kernel_size=3, strides=1, activation=tf.nn.relu)
+        #input 5x5x64
+        conv3 = tf.layers.conv2d(conv2, filters=128, kernel_size=1, strides=1, activation=tf.nn.relu)
+        #input 5x5x128
+        conv4 = tf.layers.conv2d(conv3, filters=self.n_outputs_per_cell, kernel_size=1, strides=1, activation=tf.nn.relu)
+        #expected output 5x5xn_outputs. We want n_outputs outputs per cell.
+        out = tf.contrib.layers.flatten(conv4)
+        return out
+
+
 def translate_to_model_gt(gt, config, iou_func, normalized=False, verbose=False):
     '''
     Receives gt bbox coordinates for the objects for each image and
